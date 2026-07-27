@@ -123,17 +123,31 @@ struct MainWindowView: View {
                 .frame(width: nameColumnWidth, alignment: .leading)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Text("—")
+            ProgressView(value: torrent.progressPercent, total: 100)
                 .frame(width: progressColumnWidth, alignment: .leading)
-            Text("—")
+            Text(Self.formatSpeed(torrent.downSpeedBps))
                 .frame(width: speedColumnWidth, alignment: .trailing)
-            Text("—")
+            Text(Self.formatSpeed(torrent.upSpeedBps))
                 .frame(width: speedColumnWidth, alignment: .trailing)
-            Text("—")
+            // Total connected peers, not a seeds/leechers split — librqbit doesn't
+            // expose that breakdown (see Story 1.3 Scope Boundary).
+            Text("\(torrent.peersConnected)")
                 .frame(width: seedLeechColumnWidth, alignment: .trailing)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    private static let speedFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .binary
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        return formatter
+    }()
+
+    private static func formatSpeed(_ bytesPerSecond: UInt64) -> String {
+        guard bytesPerSecond > 0 else { return "—" }
+        return "\(speedFormatter.string(fromByteCount: Int64(bytesPerSecond)))/s"
     }
 
     private var emptyState: some View {

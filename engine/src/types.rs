@@ -23,4 +23,8 @@ pub struct TorrentStatus {
     pub id: String,
     pub name: String,
     pub status: String,
+    pub progress_percent: f64,
+    pub down_speed_bps: u64,
+    pub up_speed_bps: u64,
+    pub peers_connected: u32,
 }

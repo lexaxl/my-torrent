@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::sync::Arc;
 
-use librqbit::{AddTorrent, Magnet, Session, SessionOptions};
+use librqbit::{AddTorrent, Magnet, Session, SessionOptions, TorrentStatsState};
 
 pub use types::{EngineError, TorrentSource, TorrentStatus};
 
@@ -28,6 +28,28 @@ fn runtime() -> &'static tokio::runtime::Runtime {
 fn internal_error(message: impl std::fmt::Display) -> EngineError {
     EngineError::Internal {
         message: message.to_string(),
+    }
+}
+
+/// librqbit reports speed as `Speed { mbps: f64 }` — mebibytes/sec, not bytes/sec.
+/// The FFI boundary carries bytes/sec (integer) per the Architecture Spine's
+/// Consistency Conventions, so this conversion is required on every call.
+fn mbps_to_bytes_per_sec(mbps: f64) -> u64 {
+    (mbps * 1024.0 * 1024.0).round() as u64
+}
+
+/// "checking" matches the Architecture Spine's Consistency Conventions vocabulary
+/// (active = {Downloading, Checking, Seeding}), not librqbit's own state name
+/// ("Initializing") — see Story 1.3 Dev Notes. A pure function so every branch —
+/// including "seeding", unreachable in a unit test without a real completed
+/// download — can be tested directly.
+fn derive_status(state: TorrentStatsState, finished: bool) -> &'static str {
+    match state {
+        TorrentStatsState::Initializing => "checking",
+        TorrentStatsState::Paused => "paused",
+        TorrentStatsState::Error => "error",
+        TorrentStatsState::Live if finished => "seeding",
+        TorrentStatsState::Live => "downloading",
     }
 }
 
@@ -78,17 +100,28 @@ impl Engine {
             torrents
                 .map(|(_, torrent)| {
                     let stats = torrent.stats();
-                    let status = if torrent.is_paused() {
-                        "paused"
-                    } else if stats.finished {
-                        "completed"
+                    let status = derive_status(stats.state, stats.finished);
+                    let (down_speed_bps, up_speed_bps, peers_connected) = match &stats.live {
+                        Some(live) => (
+                            mbps_to_bytes_per_sec(live.download_speed.mbps),
+                            mbps_to_bytes_per_sec(live.upload_speed.mbps),
+                            live.snapshot.peer_stats.live as u32,
+                        ),
+                        None => (0, 0, 0),
+                    };
+                    let progress_percent = if stats.total_bytes == 0 {
+                        0.0
                     } else {
-                        "downloading"
+                        stats.progress_bytes as f64 / stats.total_bytes as f64 * 100.0
                     };
                     TorrentStatus {
                         id: torrent.info_hash().as_string(),
                         name: torrent.name().unwrap_or_default(),
                         status: status.to_string(),
+                        progress_percent,
+                        down_speed_bps,
+                        up_speed_bps,
+                        peers_connected,
                     }
                 })
                 .collect()
@@ -101,6 +134,10 @@ impl Engine {
                     id: id.clone(),
                     name: pending.name.clone(),
                     status: if pending.failed { "error" } else { "resolving" }.to_string(),
+                    progress_percent: 0.0,
+                    down_speed_bps: 0,
+                    up_speed_bps: 0,
+                    peers_connected: 0,
                 });
             }
         }
@@ -294,5 +331,57 @@ mod tests {
         }
 
         assert_eq!(status, "error");
+    }
+
+    #[test]
+    fn add_torrent_from_file_reports_progress_and_live_metric_fields() {
+        let engine = test_engine();
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
+
+        engine
+            .add_torrent(TorrentSource::Path {
+                path: fixture.to_string(),
+            })
+            .expect("add_torrent should succeed for a valid .torrent file");
+
+        let torrents = engine.get_all_torrents();
+        assert_eq!(torrents.len(), 1);
+        let torrent = &torrents[0];
+
+        // No real peers in this test, so status is whichever early state librqbit
+        // reports before it has fetched anything — not deterministic which one.
+        assert!(
+            matches!(torrent.status.as_str(), "checking" | "downloading"),
+            "unexpected status: {}",
+            torrent.status
+        );
+        assert!((0.0..=100.0).contains(&torrent.progress_percent));
+        // No peers connected in this test — computing these fields must not panic,
+        // and with nothing connected they're expected to be zero.
+        assert_eq!(torrent.down_speed_bps, 0);
+        assert_eq!(torrent.up_speed_bps, 0);
+        assert_eq!(torrent.peers_connected, 0);
+    }
+
+    #[test]
+    fn mbps_to_bytes_per_sec_converts_correctly() {
+        assert_eq!(mbps_to_bytes_per_sec(0.0), 0);
+        assert_eq!(mbps_to_bytes_per_sec(1.0), 1024 * 1024);
+        assert_eq!(mbps_to_bytes_per_sec(2.5), (2.5f64 * 1024.0 * 1024.0).round() as u64);
+        // Rounds rather than truncates — a fractional Mbps must not be
+        // systematically under-reported.
+        assert_eq!(mbps_to_bytes_per_sec(0.000001), 1);
+    }
+
+    #[test]
+    fn derive_status_covers_every_state() {
+        assert_eq!(derive_status(TorrentStatsState::Initializing, false), "checking");
+        assert_eq!(derive_status(TorrentStatsState::Paused, false), "paused");
+        assert_eq!(derive_status(TorrentStatsState::Error, false), "error");
+        assert_eq!(derive_status(TorrentStatsState::Live, false), "downloading");
+        // The one branch a real end-to-end run can't reach without a fully
+        // downloaded torrent and a live swarm (unreachable in this environment —
+        // see Story 1.3 Task 6 Debug Log) — covered here directly instead.
+        assert_eq!(derive_status(TorrentStatsState::Live, true), "seeding");
     }
 }

@@ -35,6 +35,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             pendingURLs.append(contentsOf: urls)
         }
     }
+
+    // `LSUIElement` (Info.plist) alone does not stop the app from quitting when its
+    // last window closes — confirmed empirically (Story 1.3 Task 6). AD-4's polling
+    // must survive every window being closed, so this must return false explicitly.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
 }
 
 @main

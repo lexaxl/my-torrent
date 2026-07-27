@@ -465,6 +465,54 @@ fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
+    typealias FfiType = UInt32
+    typealias SwiftType = UInt32
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt32 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
+    typealias FfiType = UInt64
+    typealias SwiftType = UInt64
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt64 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
+    typealias FfiType = Double
+    typealias SwiftType = Double
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Double {
+        return try lift(readDouble(&buf))
+    }
+
+    public static func write(_ value: Double, into buf: inout [UInt8]) {
+        writeDouble(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterString: FfiConverter {
     typealias SwiftType = String
     typealias FfiType = RustBuffer
@@ -669,13 +717,21 @@ public struct TorrentStatus: Equatable, Hashable {
     public var id: String
     public var name: String
     public var status: String
+    public var progressPercent: Double
+    public var downSpeedBps: UInt64
+    public var upSpeedBps: UInt64
+    public var peersConnected: UInt32
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, name: String, status: String) {
+    public init(id: String, name: String, status: String, progressPercent: Double, downSpeedBps: UInt64, upSpeedBps: UInt64, peersConnected: UInt32) {
         self.id = id
         self.name = name
         self.status = status
+        self.progressPercent = progressPercent
+        self.downSpeedBps = downSpeedBps
+        self.upSpeedBps = upSpeedBps
+        self.peersConnected = peersConnected
     }
 
     
@@ -696,7 +752,11 @@ public struct FfiConverterTypeTorrentStatus: FfiConverterRustBuffer {
             try TorrentStatus(
                 id: FfiConverterString.read(from: &buf), 
                 name: FfiConverterString.read(from: &buf), 
-                status: FfiConverterString.read(from: &buf)
+                status: FfiConverterString.read(from: &buf), 
+                progressPercent: FfiConverterDouble.read(from: &buf), 
+                downSpeedBps: FfiConverterUInt64.read(from: &buf), 
+                upSpeedBps: FfiConverterUInt64.read(from: &buf), 
+                peersConnected: FfiConverterUInt32.read(from: &buf)
         )
     }
 
@@ -704,6 +764,10 @@ public struct FfiConverterTypeTorrentStatus: FfiConverterRustBuffer {
         FfiConverterString.write(value.id, into: &buf)
         FfiConverterString.write(value.name, into: &buf)
         FfiConverterString.write(value.status, into: &buf)
+        FfiConverterDouble.write(value.progressPercent, into: &buf)
+        FfiConverterUInt64.write(value.downSpeedBps, into: &buf)
+        FfiConverterUInt64.write(value.upSpeedBps, into: &buf)
+        FfiConverterUInt32.write(value.peersConnected, into: &buf)
     }
 }
 
