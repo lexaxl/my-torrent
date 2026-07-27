@@ -1,0 +1,39 @@
+name: MyTorrent
+options:
+  bundleIdPrefix: com.alex.mytorrent
+  deploymentTarget:
+    macOS: "13.0"
+
+settings:
+  base:
+    ARCHS: arm64
+    ONLY_ACTIVE_ARCH: YES
+    SWIFT_VERSION: "5"
+
+targets:
+  MyTorrent:
+    type: application
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - path: MyTorrent
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.alex.mytorrent.MyTorrent
+        INFOPLIST_FILE: MyTorrent/Info.plist
+        HEADER_SEARCH_PATHS: "$(SRCROOT)/MyTorrent/Generated"
+        SWIFT_INCLUDE_PATHS: "$(SRCROOT)/MyTorrent/Generated"
+        # Explicit path to the static archive, not "-lengine" + LIBRARY_SEARCH_PATHS —
+        # the search-path form lets the linker pick libengine.dylib (also present in
+        # target/release) instead, baking an absolute build-machine path into the app.
+        OTHER_LDFLAGS: "$(SRCROOT)/engine/target/aarch64-apple-darwin/release/libengine.a"
+        ENABLE_HARDENED_RUNTIME: NO
+        CODE_SIGN_IDENTITY: "-"
+    preBuildScripts:
+      - name: "Build Rust engine + generate UniFFI bindings"
+        script: |
+          "${SRCROOT}/scripts/build-engine.sh"
+        outputFiles:
+          - "$(SRCROOT)/MyTorrent/Generated/engine.swift"
+          - "$(SRCROOT)/MyTorrent/Generated/engineFFI.h"
+          - "$(SRCROOT)/MyTorrent/Generated/module.modulemap"

@@ -1,0 +1,758 @@
+<title>my-torrent — Visual Prototype</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --border: #e1e3e8;
+    --border-strong: #d3d6de;
+    --text-primary: #1c1e26;
+    --text-secondary: #62677a;
+    --text-tertiary: #9297a6;
+    --accent: #4c5fd5;
+    --accent-soft: #eef0fc;
+    --success: #1f9254;
+    --warning: #b7791f;
+    --row-hover: #f1f2fa;
+    --shadow: 0 20px 48px -18px rgba(28, 30, 38, 0.35), 0 2px 8px rgba(28, 30, 38, 0.06);
+    --track-bg: #e6e7ee;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17181d;
+      --surface: #1e2027;
+      --border: #2c2f38;
+      --border-strong: #383c48;
+      --text-primary: #edeef2;
+      --text-secondary: #a7acbd;
+      --text-tertiary: #6e7280;
+      --accent: #7c8cf0;
+      --accent-soft: #262a45;
+      --success: #3fb873;
+      --warning: #d2a245;
+      --row-hover: #262933;
+      --shadow: 0 20px 48px -18px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.3);
+      --track-bg: #2c2f38;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #17181d;
+    --surface: #1e2027;
+    --border: #2c2f38;
+    --border-strong: #383c48;
+    --text-primary: #edeef2;
+    --text-secondary: #a7acbd;
+    --text-tertiary: #6e7280;
+    --accent: #7c8cf0;
+    --accent-soft: #262a45;
+    --success: #3fb873;
+    --warning: #d2a245;
+    --row-hover: #262933;
+    --shadow: 0 20px 48px -18px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.3);
+    --track-bg: #2c2f38;
+  }
+
+  :root[data-theme="light"] {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --border: #e1e3e8;
+    --border-strong: #d3d6de;
+    --text-primary: #1c1e26;
+    --text-secondary: #62677a;
+    --text-tertiary: #9297a6;
+    --accent: #4c5fd5;
+    --accent-soft: #eef0fc;
+    --success: #1f9254;
+    --warning: #b7791f;
+    --row-hover: #f1f2fa;
+    --shadow: 0 20px 48px -18px rgba(28, 30, 38, 0.35), 0 2px 8px rgba(28, 30, 38, 0.06);
+    --track-bg: #e6e7ee;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 40px 20px 80px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+
+  .page {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  .intro {
+    margin-bottom: 28px;
+  }
+
+  .intro h1 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+
+  .intro p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    max-width: 60ch;
+    line-height: 1.5;
+  }
+
+  /* ---- Prototype navigator (our tool, not part of the app) ---- */
+  .nav {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    width: fit-content;
+    margin-bottom: 28px;
+  }
+
+  .nav button {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    padding: 7px 14px;
+    border-radius: 7px;
+    cursor: pointer;
+  }
+
+  .nav button:hover { color: var(--text-primary); }
+
+  .nav button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .nav button[aria-selected="true"] {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .stage {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .screen { display: none; }
+  .screen.is-active { display: flex; flex-direction: column; gap: 16px; }
+
+  .caption {
+    font-size: 12px;
+    color: var(--text-tertiary);
+  }
+
+  /* ---- macOS window chrome ---- */
+  .window {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    width: 100%;
+    max-width: 620px;
+  }
+
+  .titlebar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .traffic {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .traffic.red { background: #ff5f57; }
+  .traffic.yellow { background: #febc2e; }
+  .traffic.green { background: #28c840; }
+
+  .window-title {
+    flex: 1;
+    text-align: center;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-right: 44px; /* balance traffic lights */
+  }
+
+  /* ---- Toolbar (main window) ---- */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .toolbar-title {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .search {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 5px 10px;
+    color: var(--text-tertiary);
+    font-size: 12px;
+  }
+
+  .icon-btn {
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: default;
+  }
+  .icon-btn:hover { background: var(--row-hover); color: var(--text-primary); }
+
+  /* ---- Downloads list ---- */
+  .list-headers {
+    display: grid;
+    grid-template-columns: 1fr 130px 76px 76px 76px;
+    gap: 12px;
+    padding: 7px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+  }
+  .list-headers span:not(:first-child) { text-align: right; }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 130px 76px 76px 76px;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12.5px;
+    cursor: default;
+  }
+  .row:last-child { border-bottom: none; }
+  .row:hover { background: var(--row-hover); }
+
+  .row .name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .row .name span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .file-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex: none;
+  }
+  .row.is-seeding .file-dot { background: var(--success); }
+  .row.has-warning .file-dot { background: var(--warning); }
+
+  .progress-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .progress-track {
+    flex: 1;
+    height: 5px;
+    background: var(--track-bg);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+  }
+  .row.is-seeding .progress-fill { background: var(--success); }
+
+  .progress-pct {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+    font-size: 11px;
+    width: 30px;
+    text-align: right;
+  }
+
+  .num {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    color: var(--text-secondary);
+  }
+
+  .empty-state {
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--text-tertiary);
+    font-size: 13px;
+  }
+
+  .toggle-empty {
+    align-self: flex-start;
+    font-size: 11.5px;
+    color: var(--accent);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  /* ---- Torrent detail ---- */
+  .detail-header {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .detail-header-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .detail-name {
+    font-size: 14px;
+    font-weight: 600;
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .detail-summary {
+    margin-top: 3px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 4px;
+    padding: 8px 14px 0;
+  }
+  .tab {
+    appearance: none;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    padding: 7px 12px;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+  }
+  .tab[aria-selected="true"] {
+    color: var(--text-primary);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+  }
+
+  .tab-panel { display: none; }
+  .tab-panel.is-active { display: block; }
+
+  .detail-row {
+    display: grid;
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12.5px;
+    gap: 4px;
+  }
+  .detail-row:last-child { border-bottom: none; }
+
+  .files-row { grid-template-columns: 1fr auto auto; align-items: center; gap: 14px; }
+  .files-row .file-size { color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+  .files-row .file-pct { color: var(--text-secondary); font-variant-numeric: tabular-nums; width: 34px; text-align: right; }
+
+  .trackers-row { grid-template-columns: 1fr auto; align-items: center; gap: 14px; }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+  .status-dot.warn { background: var(--warning); }
+
+  .peers-row { grid-template-columns: 1fr auto auto auto; align-items: center; gap: 14px; }
+  .peers-row .role {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-tertiary);
+  }
+
+  /* ---- Settings ---- */
+  .settings-body { padding: 18px 18px 22px; display: flex; flex-direction: column; gap: 20px; }
+  .field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+  }
+  .path-row { display: flex; gap: 8px; }
+  .path-value {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 7px 10px;
+    font-size: 12.5px;
+    color: var(--text-primary);
+  }
+  .btn {
+    appearance: none;
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 7px;
+    cursor: pointer;
+  }
+  .btn:hover { background: var(--row-hover); }
+
+  .radio-group { display: flex; flex-direction: column; gap: 10px; }
+  .radio-option { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .radio-dot {
+    width: 15px; height: 15px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border-strong);
+    display: grid; place-items: center;
+    flex: none;
+  }
+  .radio-option.selected .radio-dot { border-color: var(--accent); }
+  .radio-option.selected .radio-dot::after {
+    content: "";
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .hours-input {
+    width: 44px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 6px;
+    font-size: 12.5px;
+    text-align: center;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+  .field-hint { font-size: 11px; color: var(--text-tertiary); margin-top: 6px; }
+
+  /* ---- Menu bar ---- */
+  .menubar-strip {
+    max-width: 620px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 14px;
+    padding: 4px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .status-icon {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .status-icon .arrow { font-size: 11px; }
+
+  .popover {
+    max-width: 220px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    align-self: flex-end;
+    margin-right: 4px;
+  }
+  .popover-stats {
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    border-bottom: 1px solid var(--border);
+  }
+  .popover-stats .stat-line {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .popover-stats .stat-line .label { color: var(--text-secondary); }
+  .popover-actions { padding: 6px; display: flex; flex-direction: column; }
+  .popover-actions button {
+    appearance: none;
+    border: none;
+    background: none;
+    text-align: left;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--text-primary);
+    padding: 7px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .popover-actions button:hover { background: var(--row-hover); }
+
+  .oq {
+    margin-top: 4px;
+    font-size: 11.5px;
+    color: var(--text-tertiary);
+    max-width: 620px;
+  }
+</style>
+
+<div class="page">
+  <div class="intro">
+    <h1>my-torrent — визуальный прототип</h1>
+    <p>Статичный HTML-прототип 4 экранов v1, в стилистике Apple HIG (нативный вид). Переключайтесь между экранами кнопками ниже. Реальный контент и Object ID — из финальных спецификаций Phase 4.</p>
+  </div>
+
+  <div class="nav" role="tablist" aria-label="Экраны прототипа">
+    <button role="tab" aria-selected="true" data-screen="main">Главное окно</button>
+    <button role="tab" aria-selected="false" data-screen="detail">Экран деталей</button>
+    <button role="tab" aria-selected="false" data-screen="settings">Настройки</button>
+    <button role="tab" aria-selected="false" data-screen="menubar">Меню-бар</button>
+  </div>
+
+  <div class="stage">
+
+    <!-- ===================== 1.1 MAIN WINDOW ===================== -->
+    <section class="screen is-active" id="screen-main">
+      <div class="window">
+        <div class="titlebar">
+          <span class="traffic red"></span><span class="traffic yellow"></span><span class="traffic green"></span>
+          <span class="window-title">my-torrent</span>
+        </div>
+        <div class="toolbar">
+          <span class="toolbar-title">my-torrent</span>
+          <span class="search">🔍 Поиск</span>
+          <span class="icon-btn" title="Настройки">⚙</span>
+        </div>
+
+        <div id="main-populated">
+          <div class="list-headers">
+            <span>Имя</span><span>Прогресс</span><span>↓</span><span>↑</span><span>Сиды/Личи</span>
+          </div>
+
+          <div class="row">
+            <div class="name"><span class="file-dot"></span><span>ubuntu-24.04-desktop-amd64.iso</span></div>
+            <div class="progress-cell"><div class="progress-track"><div class="progress-fill" style="width:72%"></div></div><span class="progress-pct">72%</span></div>
+            <div class="num">4.2 MB/s</div>
+            <div class="num">0.3 MB/s</div>
+            <div class="num">12 / 3</div>
+          </div>
+
+          <div class="row">
+            <div class="name"><span class="file-dot"></span><span>studio-suite-2.4-macos.dmg</span></div>
+            <div class="progress-cell"><div class="progress-track"><div class="progress-fill" style="width:18%"></div></div><span class="progress-pct">18%</span></div>
+            <div class="num">1.1 MB/s</div>
+            <div class="num">0.1 MB/s</div>
+            <div class="num">4 / 9</div>
+          </div>
+
+          <div class="row has-warning">
+            <div class="name"><span class="file-dot"></span><span>research-dataset-archive.zip</span></div>
+            <div class="progress-cell"><div class="progress-track"><div class="progress-fill" style="width:41%"></div></div><span class="progress-pct">41%</span></div>
+            <div class="num">0 KB/s</div>
+            <div class="num">0 KB/s</div>
+            <div class="num">0 / 0</div>
+          </div>
+
+          <div class="row is-seeding">
+            <div class="name"><span class="file-dot"></span><span>field-recordings-vol3.flac</span></div>
+            <div class="progress-cell"><div class="progress-track"><div class="progress-fill" style="width:100%"></div></div><span class="progress-pct">100%</span></div>
+            <div class="num">0 KB/s</div>
+            <div class="num">0.5 MB/s</div>
+            <div class="num">2 / 0</div>
+          </div>
+        </div>
+
+        <div id="main-empty" style="display:none">
+          <div class="empty-state">Нет активных закачек</div>
+        </div>
+      </div>
+      <button class="toggle-empty" id="toggle-main-empty">Показать пустое состояние →</button>
+      <p class="caption">Строка с предупреждением (жёлтая точка) иллюстрирует ошибку трекера на уровне отдельного торрента — не всей страницы.</p>
+    </section>
+
+    <!-- ===================== 2.2 TORRENT DETAIL ===================== -->
+    <section class="screen" id="screen-detail">
+      <div class="window">
+        <div class="titlebar">
+          <span class="traffic red"></span><span class="traffic yellow"></span><span class="traffic green"></span>
+          <span class="window-title">Детали торрента</span>
+        </div>
+
+        <div class="detail-header">
+          <div class="detail-header-top">
+            <span class="icon-btn" title="Закрыть">✕</span>
+            <span class="detail-name">ubuntu-24.04-desktop-amd64.iso</span>
+          </div>
+          <div class="detail-summary">72% · 4.2 MB/s ↓ · 0.3 MB/s ↑ · 12 сидов / 3 личей</div>
+        </div>
+
+        <div class="tabs" role="tablist">
+          <button class="tab" role="tab" aria-selected="true" data-tab="files">Файлы</button>
+          <button class="tab" role="tab" aria-selected="false" data-tab="trackers">Трекеры</button>
+          <button class="tab" role="tab" aria-selected="false" data-tab="peers">Пиры</button>
+        </div>
+
+        <div class="tab-panel is-active" id="tab-files">
+          <div class="detail-row files-row"><span>ubuntu-24.04-desktop-amd64.iso</span><span class="file-size">4.7 GB</span><span class="file-pct">72%</span></div>
+          <div class="detail-row files-row"><span>SHA256SUMS</span><span class="file-size">1 KB</span><span class="file-pct">100%</span></div>
+        </div>
+
+        <div class="tab-panel" id="tab-trackers">
+          <div class="detail-row trackers-row"><span>udp://tracker.example.org:80</span><span class="status-pill"><span class="status-dot"></span>Подключён</span></div>
+          <div class="detail-row trackers-row"><span>udp://tracker2.example.org:6969</span><span class="status-pill"><span class="status-dot warn"></span>Не отвечает</span></div>
+        </div>
+
+        <div class="tab-panel" id="tab-peers">
+          <div class="detail-row peers-row"><span>93.184.216.34</span><span class="num">↓ 320 KB/s</span><span class="num">↑ 12 KB/s</span><span class="role">Сид</span></div>
+          <div class="detail-row peers-row"><span>198.51.100.7</span><span class="num">↓ 80 KB/s</span><span class="num">↑ 0 KB/s</span><span class="role">Личер</span></div>
+        </div>
+      </div>
+      <p class="caption">Открывается отдельным окном — можно смотреть параллельно с главным. Вкладки переключаются кликом (весь список read-only в v1).</p>
+    </section>
+
+    <!-- ===================== 3.1 SETTINGS ===================== -->
+    <section class="screen" id="screen-settings">
+      <div class="window">
+        <div class="titlebar">
+          <span class="traffic red"></span><span class="traffic yellow"></span><span class="traffic green"></span>
+          <span class="window-title">Настройки</span>
+        </div>
+
+        <div class="settings-body">
+          <div class="field">
+            <label>Папка для сохранения</label>
+            <div class="path-row">
+              <span class="path-value">~/Downloads</span>
+              <button class="btn">Выбрать…</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Раздавать после завершения</label>
+            <div class="radio-group">
+              <div class="radio-option"><span class="radio-dot"></span>Не раздавать</div>
+              <div class="radio-option selected"><span class="radio-dot"></span>&nbsp;<span class="hours-input">8</span>&nbsp;часов</div>
+              <div class="radio-option"><span class="radio-dot"></span>Бессрочно</div>
+            </div>
+            <div class="field-hint">Допустимый диапазон: 1–168 часов</div>
+          </div>
+        </div>
+      </div>
+      <p class="caption">Изменения применяются мгновенно — отдельной кнопки «Сохранить» нет.</p>
+    </section>
+
+    <!-- ===================== 4.1 MENU BAR ===================== -->
+    <section class="screen" id="screen-menubar">
+      <div class="menubar-strip">
+        <span class="status-icon"><span class="arrow">⇅</span> my-torrent</span>
+        <span>Пт 14:32</span>
+      </div>
+      <div class="popover">
+        <div class="popover-stats">
+          <div class="stat-line"><span class="label">↓ Загрузка</span><span>5.3 MB/s</span></div>
+          <div class="stat-line"><span class="label">↑ Раздача</span><span>0.4 MB/s</span></div>
+          <div class="stat-line"><span class="label">Активно</span><span>2 закачки</span></div>
+        </div>
+        <div class="popover-actions">
+          <button>Открыть окно</button>
+          <button>Настройки</button>
+        </div>
+      </div>
+      <p class="caption">Клик по иконке в меню-баре открывает popover (не hover) — надёжнее на macOS. Иконка в состоянии покоя выглядит нейтрально; точный визуальный дизайн иконки — открытый вопрос.</p>
+    </section>
+
+  </div>
+</div>
+
+<script>
+  var navButtons = document.querySelectorAll('.nav button');
+  navButtons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      navButtons.forEach(function (b) { b.setAttribute('aria-selected', 'false'); });
+      btn.setAttribute('aria-selected', 'true');
+      document.querySelectorAll('.screen').forEach(function (s) { s.classList.remove('is-active'); });
+      document.getElementById('screen-' + btn.dataset.screen).classList.add('is-active');
+    });
+  });
+
+  var tabButtons = document.querySelectorAll('.tab');
+  tabButtons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      tabButtons.forEach(function (b) { b.setAttribute('aria-selected', 'false'); });
+      btn.setAttribute('aria-selected', 'true');
+      document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.remove('is-active'); });
+      document.getElementById('tab-' + btn.dataset.tab).classList.add('is-active');
+    });
+  });
+
+  var emptyToggle = document.getElementById('toggle-main-empty');
+  var populated = document.getElementById('main-populated');
+  var empty = document.getElementById('main-empty');
+  var showingEmpty = false;
+  emptyToggle.addEventListener('click', function () {
+    showingEmpty = !showingEmpty;
+    populated.style.display = showingEmpty ? 'none' : '';
+    empty.style.display = showingEmpty ? '' : 'none';
+    emptyToggle.textContent = showingEmpty ? '← Показать заполненный список' : 'Показать пустое состояние →';
+  });
+</script>

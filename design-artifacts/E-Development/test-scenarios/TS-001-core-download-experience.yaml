@@ -1,0 +1,303 @@
+# WDS Test Scenario
+# Generated from templates/test-scenario.template.yaml
+
+test_scenario:
+  id: "TS-001"
+  name: "Core Download Experience Testing"
+  delivery_id: "DD-001"
+  type: "user_acceptance"
+  status: "ready"
+  tester: "designer" # Alex, acting as both designer and sole user
+  created_at: "2026-07-27T00:00:00Z"
+
+test_objectives:
+  - "Validate implementation matches the 4 page specifications (1.1, 2.2, 3.1, 4.1)"
+  - "Confirm the 'zero friction on entry' Product Concept holds in practice — no dialog interrupts adding a torrent"
+  - "Confirm all edge cases (tracker error, empty peers, empty downloads list) are handled per spec"
+  - "Verify the 2 extracted design-system components (List Row, Icon Button) are used consistently"
+  - "Confirm near-zero idle resource usage — the project's primary non-functional success criterion"
+
+test_environment:
+  devices:
+    - "Apple Silicon Mac, latest macOS (per Platform Strategy — no Intel/older-OS testing needed)"
+    - "Apple Silicon Mac, macOS N-1 (previous major version, per '1-2 versions' support range)"
+
+  test_data:
+    - field: "torrent_with_multiple_files"
+      value: "A .torrent with ≥2 files, mixed sizes, to exercise the Files tab"
+    - field: "torrent_with_dead_tracker"
+      value: "A torrent whose tracker is unreachable, to exercise the row-level warning state"
+    - field: "torrent_with_zero_peers"
+      value: "A torrent with no connected peers, to exercise the Peers-tab empty state"
+    - field: "magnet_link"
+      value: "A valid magnet URI, to exercise the browser-entry path"
+
+# Happy Path Tests
+happy_path:
+  - id: "HP-001"
+    name: "Alex's Daily Download — open a torrent, watch it download"
+    priority: "critical"
+
+    steps:
+      - action: "Double-click a .torrent file in Finder"
+        expected: "App opens/comes to foreground; a new row appears in the main window instantly, already downloading — no dialog appears"
+        design_ref: "C-UX-Scenarios/01-alexs-daily-download/1.1-main-window/1.1-main-window.md#Page Sections"
+
+      - action: "Click a magnet link in the browser"
+        expected: "Same as above — row appears immediately, no dialog, using current global defaults"
+        design_ref: "C-UX-Scenarios/01-alexs-daily-download/1.1-main-window/1.1-main-window.md#Overview"
+
+      - action: "Observe the row while downloading"
+        expected: "Progress bar, download speed, upload speed, and seeder/leecher count update live"
+        design_ref: "C-UX-Scenarios/01-alexs-daily-download/1.1-main-window/1.1-main-window.md#Page States"
+
+    success_criteria:
+      - "Zero dialogs appear between opening the file/link and the row starting to download"
+      - "Row data visibly updates at least once per second"
+      - "This matches the Product Brief Product Concept: 'zero friction on entry, depth on demand'"
+
+  - id: "HP-002"
+    name: "Alex Inspects a Torrent"
+    priority: "high"
+
+    steps:
+      - action: "Click a torrent row in the main window"
+        expected: "A separate window opens showing the torrent's name, overall progress summary, and Files/Trackers/Peers tabs (Files selected by default)"
+        design_ref: "C-UX-Scenarios/02-alex-inspects-a-torrent/2.2-torrent-detail/2.2-torrent-detail.md#Page Sections"
+
+      - action: "Click the Trackers tab, then the Peers tab"
+        expected: "Content area swaps to show tracker status rows / connected-peer rows; header (name + summary) stays fixed"
+        design_ref: "C-UX-Scenarios/02-alex-inspects-a-torrent/2.2-torrent-detail/2.2-torrent-detail.md#Section: Tab Switcher"
+
+      - action: "Close the detail window"
+        expected: "Returns to main window, which was never blocked (separate window, not a sheet)"
+        design_ref: "C-UX-Scenarios/02-alex-inspects-a-torrent/2.2-torrent-detail/2.2-torrent-detail.md#Page Metadata"
+
+    success_criteria:
+      - "All 3 tabs show correct live data for the selected torrent"
+      - "Main window remains usable while the detail window is open"
+
+  - id: "HP-003"
+    name: "Alex Sets Defaults Once"
+    priority: "high"
+
+    steps:
+      - action: "Open Settings from the main window toolbar"
+        expected: "Separate window opens showing current save location (default ~/Downloads) and seed-duration radio group (default: 8 hours)"
+        design_ref: "C-UX-Scenarios/03-alex-sets-defaults-once/3.1-settings/3.1-settings.md#Page Sections"
+
+      - action: "Click 'Выбрать...' and choose a new folder"
+        expected: "Save-location field updates immediately — no separate save/confirm step"
+        design_ref: "C-UX-Scenarios/03-alex-sets-defaults-once/3.1-settings/3.1-settings.md#Save Location Picker Button"
+
+      - action: "Select 'N часов' and enter a value within 1-168"
+        expected: "Applies immediately; a value outside 1-168 is rejected or clamped"
+        design_ref: "C-UX-Scenarios/03-alex-sets-defaults-once/3.1-settings/3.1-settings.md#Option: N Hours"
+
+      - action: "Open a new torrent after changing defaults"
+        expected: "New torrent uses the updated save location and seed duration, confirming the setting actually took effect"
+        design_ref: "C-UX-Scenarios/03-alex-sets-defaults-once/3.1-settings/3.1-settings.md#Technical Notes"
+
+    success_criteria:
+      - "No save/cancel buttons exist anywhere on this screen"
+      - "Changes are reflected in subsequently-added torrents"
+
+  - id: "HP-004"
+    name: "Alex Glances at the Menu Bar"
+    priority: "medium"
+
+    steps:
+      - action: "Click the menu-bar icon while torrents are downloading"
+        expected: "Popover opens showing aggregate download speed, aggregate upload speed, and active-download count"
+        design_ref: "C-UX-Scenarios/04-alex-glances-at-the-menu-bar/4.1-menu-bar/4.1-menu-bar.md#Section: Popover — Stats"
+
+      - action: "Click 'Открыть окно' in the popover"
+        expected: "Popover dismisses; main window is always brought to front and focused (not a show/hide toggle)"
+        design_ref: "C-UX-Scenarios/04-alex-glances-at-the-menu-bar/4.1-menu-bar/4.1-menu-bar.md#Open Window Action"
+
+    success_criteria:
+      - "Aggregate speed values match the sum of individual row speeds in the main window at the same moment"
+      - "Repeating the click always shows/focuses the window — never hides an already-visible one"
+
+# Error State Tests
+error_states:
+  - id: "ES-001"
+    name: "Tracker unreachable"
+    priority: "high"
+
+    steps:
+      - action: "Have a torrent whose tracker cannot be reached"
+      - expected: "A warning indicator appears on that specific row in the main window — the rest of the list and the app remain fully functional"
+      - expected: "Opening the torrent's detail view, Trackers tab shows the specific tracker's status as unreachable"
+      - design_ref: "C-UX-Scenarios/01-alexs-daily-download/1.1-main-window/1.1-main-window.md#Page States"
+
+    success_criteria:
+      - "No page-level error dialog or app-wide error state appears — the design explicitly scopes errors to the affected row/tracker only"
+
+# Edge Case Tests
+edge_cases:
+  - id: "EC-001"
+    name: "Empty downloads list"
+    priority: "medium"
+
+    steps:
+      - action: "Remove/complete all torrents so none remain active"
+      - expected: "Main window shows the empty-state message 'Нет активных закачек' / 'No active downloads' instead of the list"
+      - design_ref: "C-UX-Scenarios/01-alexs-daily-download/1.1-main-window/1.1-main-window.md#Empty State"
+
+    success_criteria:
+      - "Toolbar (search, settings) remains visible and functional in the empty state"
+
+  - id: "EC-002"
+    name: "Torrent with zero connected peers"
+    priority: "low"
+
+    steps:
+      - action: "Open the detail view for a torrent with no connected peers, select the Peers tab"
+      - expected: "Shows 'Нет подключённых пиров' / 'No peers connected' instead of a blank list"
+      - design_ref: "C-UX-Scenarios/02-alex-inspects-a-torrent/2.2-torrent-detail/2.2-torrent-detail.md#Peers Empty State"
+
+    success_criteria:
+      - "Files and Trackers tabs remain populated (a torrent always has ≥1 file and ≥1 tracker) even when Peers is empty"
+
+  - id: "EC-003"
+    name: "Menu-bar popover with zero active downloads"
+    priority: "low"
+
+    steps:
+      - action: "Click the menu-bar icon when no torrents are active"
+      - expected: "Popover shows the shared empty-state message instead of the 3 stat lines; 'Открыть окно' and 'Настройки' actions remain available"
+      - design_ref: "C-UX-Scenarios/04-alex-glances-at-the-menu-bar/4.1-menu-bar/4.1-menu-bar.md#Empty State (no active downloads)"
+
+    success_criteria:
+      - "Empty-state copy is identical (same translation key) to the main window's empty state — no divergent wording"
+
+# Design System Validation
+design_system_checks:
+  - id: "DS-001"
+    name: "List Row consistency"
+    checks:
+      - component: "List Row"
+        instances:
+          - "main-window-torrent-row (1.1)"
+          - "torrent-detail-files-list-row / -trackers-list-row / -peers-list-row (2.2)"
+        verify:
+          - "space-sm vertical padding, space-md horizontal padding on all instances"
+          - "hairline color-border bottom divider, absent on last row"
+          - "hover background matches token across all list types"
+        design_ref: "D-Design-System/00-design-system.md#List Row"
+
+  - id: "DS-002"
+    name: "Icon Button consistency"
+    checks:
+      - component: "Icon Button"
+        instances:
+          - "main-window-toolbar-settings-button (1.1)"
+          - "torrent-detail-header-close-button (2.2)"
+        verify:
+          - "26×26px hit target on both instances"
+          - "border-radius: 6px, transparent default, hover background matches token"
+        design_ref: "D-Design-System/00-design-system.md#Icon Button"
+
+  - id: "DS-003"
+    name: "Color token usage"
+    checks:
+      - component: "Semantic colors"
+        instances: ["seeding row (success)", "tracker-warning row (warning)", "selected tab / accent uses"]
+        verify:
+          - "Uses color-success / color-warning tokens, not ad-hoc colors"
+          - "Accent (color-accent) is the muted indigo #4C5FD5 / #7C8CF0, not stock system blue"
+          - "Both light and dark theme variants render with legible contrast"
+        design_ref: "D-Design-System/00-design-system.md#Color"
+
+# Accessibility Tests
+accessibility:
+  - id: "A11Y-001"
+    name: "VoiceOver navigation of the main window"
+    priority: "medium"
+
+    setup: "Enable VoiceOver (Cmd+F5)"
+
+    steps:
+      - action: "Navigate the toolbar, downloads list, and a torrent row with VoiceOver"
+      - verify:
+          - "Search field, settings button, and each row are announced with meaningful labels (not just 'button' or raw coordinates)"
+          - "Progress bar announces percentage, not just a generic control name"
+
+    success_criteria:
+      - "A VoiceOver user can identify what each torrent row represents and its current progress without visual context"
+
+  - id: "A11Y-002"
+    name: "Keyboard focus visibility"
+    priority: "medium"
+
+    setup: "Navigate using Tab/Shift-Tab only, no mouse"
+
+    steps:
+      - action: "Tab through toolbar controls, list rows, and Settings form fields"
+      - verify:
+          - "A visible focus indicator is present at every stop"
+          - "Focus order follows visual top-to-bottom, left-to-right reading order"
+
+    success_criteria:
+      - "No control is reachable by mouse only — everything operable by keyboard alone"
+
+# Performance Tests
+performance:
+  - id: "PERF-001"
+    name: "Idle resource usage"
+
+    verify:
+      - "CPU usage (Activity Monitor) with app running, 0 active transfers, main window closed (menu-bar only)"
+      - "Memory footprint (Activity Monitor) under the same idle condition"
+      - "CPU/memory with several torrents actively seeding (not downloading) in the background"
+
+    success_criteria:
+      - "Near-zero CPU while fully idle — the project's #1 non-negotiable success metric (Product Brief Success Criteria)"
+      - "Memory footprint stays flat over an extended idle period (no leak while seeding for hours)"
+
+  - id: "PERF-002"
+    name: "UI responsiveness under load"
+
+    verify:
+      - "Main window scroll/interaction responsiveness with 20+ simultaneous torrents"
+      - "Row update frequency does not visibly stutter the UI"
+
+    success_criteria:
+      - "List remains smoothly scrollable and rows keep updating without visible jank at v1's expected usage scale (a handful of torrents, not hundreds)"
+
+# Test Report Template
+report_template:
+  sections:
+    - name: "Test Summary"
+      fields: ["Date tested", "Tester name", "Mac model / macOS version", "Build version", "Overall result (Pass/Fail/Partial)"]
+
+    - name: "Happy Path Results"
+      fields: ["Test ID", "Result (Pass/Fail)", "Notes", "Screenshots"]
+
+    - name: "Issues Found"
+      fields: ["Issue ID", "Severity (Critical/High/Medium/Low)", "Description", "Steps to reproduce", "Expected vs Actual", "Screenshot/Video", "Design reference violated"]
+
+    - name: "Design System Compliance"
+      fields: ["Component", "Compliant (Yes/No)", "Deviations noted"]
+
+    - name: "Recommendations"
+      fields: ["What worked well", "What needs improvement", "Suggested changes"]
+
+# Sign-off Criteria
+sign_off:
+  required_for_approval:
+    - "All critical happy-path tests (HP-001, HP-002) pass"
+    - "No critical or high severity issues open"
+    - "Both design-system components (List Row, Icon Button) used consistently across all instances"
+    - "Idle CPU/memory usage genuinely near-zero, verified via Activity Monitor — not assumed"
+    - "Basic VoiceOver/keyboard accessibility checks pass"
+
+  designer_approval:
+    statement: |
+      Solo project — Alex acts as both designer and approver. This section is
+      kept for the record (per WDS template convention) rather than as a
+      formal cross-role sign-off, since there is no separate approving party.
+
+    signature: "Alex"
+    date: "________________"

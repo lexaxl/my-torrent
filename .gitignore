@@ -1,0 +1,23 @@
+# Rust
+/engine/target/
+
+# Xcode / Swift
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.build/
+.swiftpm/
+
+# XcodeGen-generated project (regenerated from project.yml)
+/MyTorrent.xcodeproj/
+
+# NOTE: MyTorrent/Generated/ is intentionally NOT ignored — it's UniFFI build
+# output, but XcodeGen only registers source files present on disk at
+# `xcodegen generate` time. If gitignored, a fresh clone has no Generated/
+# files yet, so the Xcode project would compile without engine.swift. These
+# three files are committed as a checked-in baseline and overwritten in place
+# by the build phase on every build (same paths — Xcode doesn't need
+# `xcodegen generate` re-run for content changes, only for new/renamed files).
+
+# macOS
+.DS_Store

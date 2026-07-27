@@ -1,0 +1,178 @@
+# WDS Design Delivery
+# Generated from templates/design-delivery.template.yaml
+
+delivery:
+  id: "DD-001"
+  name: "Core Download Experience"
+  type: "user_flow"
+  status: "ready"
+  priority: "high"
+  created_by: "wds-ux-expert (Freya)"
+  created_at: "2026-07-27T00:00:00Z"
+  updated_at: "2026-07-27T00:00:00Z"
+  version: "1.0"
+
+description: |
+  The complete v1 experience for my-torrent: opening a torrent and watching it
+  download (zero friction), inspecting a specific torrent's files/trackers/peers,
+  configuring global defaults once, and glancing at aggregate status from the
+  menu bar. This is the entire product scope for the first release — all 4
+  scenarios from Phase 3/4 are included in a single delivery since this is a
+  solo hobby project with one release, not a multi-team parallel-stream project.
+
+user_value:
+  problem: "Existing macOS torrent clients are either heavy and being deprecated (qBittorrent), light but inconvenient (Transmission), or confusing (others) — no lightweight, pleasant, native option exists."
+  solution: "A minimalist native macOS torrent client: zero-friction add flow, a calm downloads list, depth-on-demand detail view, one-time global settings, and an unobtrusive menu-bar quick-access layer."
+  success_criteria:
+    - "Near-zero CPU/memory usage while idle (background/seeding, no active transfer)"
+    - "Alex uses it daily in place of Transmission — no fixed evaluation date, judged by whether it genuinely sticks"
+    - "Any real engagement after open-source release (GitHub issues, stars) counts as success"
+
+design_artifacts:
+  scenarios:
+    - id: "01-alexs-daily-download"
+      path: "C-UX-Scenarios/01-alexs-daily-download/"
+      screens: ["1.1-main-window"]
+
+    - id: "02-alex-inspects-a-torrent"
+      path: "C-UX-Scenarios/02-alex-inspects-a-torrent/"
+      screens: ["2.1-main-window (shared spec, see 1.1)", "2.2-torrent-detail"]
+
+    - id: "03-alex-sets-defaults-once"
+      path: "C-UX-Scenarios/03-alex-sets-defaults-once/"
+      screens: ["3.1-settings"]
+
+    - id: "04-alex-glances-at-the-menu-bar"
+      path: "C-UX-Scenarios/04-alex-glances-at-the-menu-bar/"
+      screens: ["4.1-menu-bar"]
+
+  user_flows:
+    - name: "Add & Watch Download"
+      path: "C-UX-Scenarios/01-alexs-daily-download/01-alexs-daily-download.md"
+      entry: "1.1-main-window (via .torrent file / magnet link)"
+      exit: "1.1-main-window (row downloading)"
+
+    - name: "Inspect Torrent"
+      path: "C-UX-Scenarios/02-alex-inspects-a-torrent/02-alex-inspects-a-torrent.md"
+      entry: "2.1-main-window"
+      exit: "2.2-torrent-detail"
+
+    - name: "Configure Defaults"
+      path: "C-UX-Scenarios/03-alex-sets-defaults-once/03-alex-sets-defaults-once.md"
+      entry: "3.1-settings (from toolbar or menu-bar popover)"
+      exit: "3.1-settings (instant-apply, no save step)"
+
+    - name: "Ambient Glance"
+      path: "C-UX-Scenarios/04-alex-glances-at-the-menu-bar/04-alex-glances-at-the-menu-bar.md"
+      entry: "4.1-menu-bar (status item click)"
+      exit: "4.1-menu-bar (popover dismissed, or navigates to 1.1/3.1)"
+
+  design_system:
+    components:
+      - "List Row (used in main window torrent rows, torrent-detail files/trackers/peers rows)"
+      - "Icon Button (settings gear, detail close button)"
+      - "Tab Switcher / segmented control (torrent detail — page-specific, single use so far)"
+      - "Radio Group (settings seed-duration — page-specific, single use so far)"
+      - "Popover (menu-bar — page-specific, single use so far)"
+    path: "D-Design-System/00-design-system.md"
+
+technical_requirements:
+  platform:
+    frontend: "Native macOS UI — exact framework (SwiftUI vs. AppKit) not yet chosen, to be decided at Architecture"
+    backend: "Rust engine for the BitTorrent protocol (trackers, DHT, peer wire protocol, .torrent parsing) — bridging mechanism to the native UI (FFI/UniFFI or similar) not yet chosen, to be decided at Architecture"
+
+  integrations:
+    - name: "macOS UTType / file association"
+      purpose: "Double-clicking a .torrent file in Finder opens the app (confirmed v1 requirement)"
+      required: true
+
+    - name: "macOS URL scheme (magnet:)"
+      purpose: "Clicking a magnet link in the browser opens the app directly (confirmed v1 requirement)"
+      required: true
+
+    - name: "macOS UserNotifications"
+      purpose: "System notification on download completion (confirmed v1 requirement)"
+      required: true
+
+    - name: "macOS NSStatusItem + popover"
+      purpose: "Menu-bar quick-access layer (Scenario 04)"
+      required: true
+
+    - name: "Login item (launch at startup)"
+      purpose: "Deferred — explicitly out of scope for v1 (Phase 1 Platform Strategy decision)"
+      required: false
+
+  data_models:
+    - name: "Torrent"
+      fields: ["id", "name", "sizeBytes", "files", "progressPct", "downloadSpeedBps", "uploadSpeedBps", "seederCount", "leecherCount", "status", "savePath", "seedDurationHours", "trackers"]
+
+    - name: "TorrentFile"
+      fields: ["path", "sizeBytes", "progressPct"]
+
+    - name: "Tracker"
+      fields: ["url", "status"]
+
+    - name: "Peer"
+      fields: ["address", "downloadSpeedBps", "uploadSpeedBps", "role"]
+
+    - name: "AppSettings"
+      fields: ["defaultSavePath", "defaultSeedDurationHours (range 1-168, or off/indefinite)"]
+
+acceptance_criteria:
+  functional:
+    - "Opening a .torrent file (Finder double-click) or magnet link (browser) adds it to the downloads list immediately with no configuration dialog, using current global defaults"
+    - "Main window lists every active torrent with live progress bar, download speed, upload speed, seeder count, leecher count"
+    - "Right-clicking a torrent row shows Pause/Resume, Remove, Show in Finder — confirmed v1 context menu (see 1.1-main-window.md)"
+    - "Clicking a torrent row opens a separate detail window with Files / Trackers / Peers tabs (read-only in v1, no per-file selection)"
+    - "Settings window lets Alex set a default save location and default seeding duration (off / 1-168 hours / indefinite); changes apply instantly, no save button"
+    - "Menu-bar icon is always present; clicking it opens a popover showing aggregate download/upload speed and active count, with quick actions to open the main window (always brings to front, not a toggle) or Settings"
+    - "System notification fires when a download completes"
+
+  non_functional:
+    - "Near-zero CPU/memory usage while idle (no active transfers) — the primary, non-negotiable performance bar from Product Brief Success Criteria"
+    - "Runs on Apple Silicon only, last 1-2 macOS versions — no Intel/legacy OS compatibility work"
+    - "Distributed as an unsigned build ($0 budget, no Apple Developer Program) with user-facing Gatekeeper-bypass instructions"
+    - "UI tone follows Product Brief Tone of Voice: quiet, plain, native-standard phrasing, no exclamation marks/emoji, silence as default (no confirmation toasts for routine actions)"
+
+  edge_cases:
+    - "A torrent's tracker becomes unreachable → per-row warning indicator on the main window list, not a page-level error (see 1.1-main-window.md Page States)"
+    - "A torrent has zero connected peers → Torrent Detail Peers tab shows 'Нет подключённых пиров' / 'No peers connected' empty state, not a blank panel"
+    - "No active downloads at all → main window and menu-bar popover both show 'Нет активных закачек' / 'No active downloads' (shared translation key)"
+    - "Torrent completes with seeding duration = 'off' → row immediately reflects done/non-seeding state per global default"
+
+testing_guidance:
+  user_testing:
+    - "Alex uses the app for real downloads daily post-build — success is qualitative ('did I reach for Transmission instead?'), not a scripted usability test, per Product Brief Success Criteria"
+    - "Watch specifically for any moment where adding a torrent requires a dialog/decision — that would violate the core Product Concept ('zero friction on entry')"
+
+  qa_testing:
+    - "Verify idle CPU/memory via Activity Monitor with the app running and 0 active transfers, and again with several torrents seeding"
+    - "Verify the unsigned build + Gatekeeper-bypass instructions actually work on a clean macOS install (System Settings → allow anyway)"
+    - "Walk through all 12 resolved open-question decisions (see individual page specs' Open Questions tables) to confirm implementation matches: no sorting, context menu present, no multi-select, separate windows (not sheets) for detail/settings, no per-file checkboxes, no per-torrent seed override, 8h/1-168h seed default, always-foreground window focus"
+
+  design_validation:
+    - "Compare implementation against `D-Design-System/01-Visual-Design/design-concepts/my-torrent-prototype.html` for spacing/color/type token usage"
+    - "The 2 remaining open visual questions (row hover treatment, menu-bar icon design) should be resolved during implementation with Freya/Alex, not invented independently"
+
+estimated_complexity:
+  size: "large"
+  effort: "~1 week aspirational for v1 (per Product Brief Success Criteria) — explicitly a soft/flexible target, not a hard deadline; architecture quality and the $0/Rust+native-UI constraints take priority over hitting this date (Product Brief Constraints decision)"
+  risk: "medium"
+  risk_rationale: "Main technical unknown is the Rust↔native-UI bridge (FFI/UniFFI or similar) — unproven in this project, to be resolved at Architecture. Risk is mitigated by the timeline being explicitly de-prioritized in favor of getting the bridge and protocol implementation right."
+  dependencies: []
+
+notes: |
+  This is a solo hobby project (Alex is designer, developer, and sole user) —
+  there is no separate "BMad Architect" to hand off to in the literal sense.
+  This delivery file exists as the design→implementation contract Alex hands
+  to himself (or to Claude Code in an Architecture-phase session), consistent
+  with WDS methodology, but the Phase 4 [H] "handoff dialog" role-play (steps
+  03-05 of the Handover workflow) was skipped as not applicable — see design
+  log entry for 2026-07-27.
+
+  Trigger Map (Phase 2) was skipped per Phase 0 config (`strategic_analysis:
+  simplified`) — all strategic/persona context referenced above traces back to
+  `A-Product-Brief/01-product-brief.md`, not a separate Trigger Map document.
+
+  Business model: free, open-source, no monetization — this delivery has no
+  payment/licensing/account infrastructure in scope, by design.
