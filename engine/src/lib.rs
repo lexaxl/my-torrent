@@ -11,10 +11,12 @@ use std::sync::OnceLock;
 use std::sync::Arc;
 
 use librqbit::api::TorrentIdOrHash;
-use librqbit::{AddTorrent, Api, ManagedTorrent, Magnet, Session, SessionOptions, TorrentStatsState};
+use librqbit::{
+    AddTorrent, Api, ManagedTorrent, Magnet, Session, SessionOptions, TorrentStats, TorrentStatsState,
+};
 use librqbit_core::Id20;
 
-pub use types::{EngineError, TorrentSource, TorrentStatus};
+pub use types::{EngineError, TorrentDetail, TorrentFile, TorrentSource, TorrentStatus};
 
 #[uniffi::export]
 pub fn engine_version() -> String {
@@ -55,6 +57,27 @@ fn derive_status(state: TorrentStatsState, finished: bool) -> &'static str {
         TorrentStatsState::Live if finished => "seeding",
         TorrentStatsState::Live => "downloading",
     }
+}
+
+/// Shared by `get_all_torrents` and `get_torrent_details` (Story 2.1) — both derive
+/// the same list-level fields from a `TorrentStats` snapshot; kept in one place so
+/// the two calls can't silently drift apart (see Story 2.1 Dev Notes).
+fn summarize_stats(stats: &TorrentStats) -> (String, f64, u64, u64, u32) {
+    let status = derive_status(stats.state, stats.finished);
+    let (down_speed_bps, up_speed_bps, peers_connected) = match &stats.live {
+        Some(live) => (
+            mbps_to_bytes_per_sec(live.download_speed.mbps),
+            mbps_to_bytes_per_sec(live.upload_speed.mbps),
+            live.snapshot.peer_stats.live as u32,
+        ),
+        None => (0, 0, 0),
+    };
+    let progress_percent = if stats.total_bytes == 0 {
+        0.0
+    } else {
+        stats.progress_bytes as f64 / stats.total_bytes as f64 * 100.0
+    };
+    (status.to_string(), progress_percent, down_speed_bps, up_speed_bps, peers_connected)
 }
 
 struct PendingTorrent {
@@ -130,26 +153,14 @@ impl Engine {
             torrents
                 .map(|(idx, torrent)| {
                     let stats = torrent.stats();
-                    let status = derive_status(stats.state, stats.finished);
-                    let (down_speed_bps, up_speed_bps, peers_connected) = match &stats.live {
-                        Some(live) => (
-                            mbps_to_bytes_per_sec(live.download_speed.mbps),
-                            mbps_to_bytes_per_sec(live.upload_speed.mbps),
-                            live.snapshot.peer_stats.live as u32,
-                        ),
-                        None => (0, 0, 0),
-                    };
-                    let progress_percent = if stats.total_bytes == 0 {
-                        0.0
-                    } else {
-                        stats.progress_bytes as f64 / stats.total_bytes as f64 * 100.0
-                    };
+                    let (status, progress_percent, down_speed_bps, up_speed_bps, peers_connected) =
+                        summarize_stats(&stats);
                     (
                         idx,
                         TorrentStatus {
                             id: torrent.info_hash().as_string(),
                             name: torrent.name().unwrap_or_default(),
-                            status: status.to_string(),
+                            status,
                             progress_percent,
                             down_speed_bps,
                             up_speed_bps,
@@ -238,6 +249,60 @@ impl Engine {
             .api_torrent_details(idor)
             .map_err(internal_error)?
             .output_folder)
+    }
+
+    /// Separate from `get_all_torrents` on purpose (Story 2.1 Dev Notes / Consistency
+    /// Conventions "Snapshot granularity") — per-file detail is only fetched for the
+    /// one torrent whose detail window is open, polled on its own cadence, not folded
+    /// into the always-on list poll. Not found for a torrent still only in `pending`
+    /// (`find_handle` covers that — see Scope Boundary: the detail window still opens,
+    /// it just stays empty until resolution finishes).
+    pub fn get_torrent_details(&self, id: String) -> Result<TorrentDetail, EngineError> {
+        let handle = self.find_handle(&id)?;
+        let stats = handle.stats();
+        let (status, progress_percent, down_speed_bps, up_speed_bps, peers_connected) =
+            summarize_stats(&stats);
+
+        // `file_progress` is aligned by index with `file_infos` — both come from the
+        // same per-file iteration order librqbit assigns at metadata-parse time.
+        // `metadata` is `None` until the torrent has finished initializing, same case
+        // `torrent.name()` already falls back on elsewhere in this file.
+        let files = handle
+            .metadata
+            .load()
+            .as_ref()
+            .map(|metadata| {
+                metadata
+                    .file_infos
+                    .iter()
+                    .enumerate()
+                    .map(|(i, info)| {
+                        let downloaded = stats.file_progress.get(i).copied().unwrap_or(0);
+                        let file_progress_percent = if info.len == 0 {
+                            0.0
+                        } else {
+                            downloaded as f64 / info.len as f64 * 100.0
+                        };
+                        TorrentFile {
+                            name: info.relative_filename.to_string_lossy().into_owned(),
+                            size_bytes: info.len,
+                            progress_percent: file_progress_percent,
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(TorrentDetail {
+            id,
+            name: handle.name().unwrap_or_default(),
+            status,
+            progress_percent,
+            down_speed_bps,
+            up_speed_bps,
+            peers_connected,
+            files,
+        })
     }
 }
 
@@ -623,6 +688,64 @@ mod tests {
         let unknown_id = "0".repeat(40);
 
         assert!(engine.pause_torrent(unknown_id).is_err());
+    }
+
+    #[test]
+    fn get_torrent_details_returns_files_with_sizes() {
+        let engine = test_engine();
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
+        let id = engine
+            .add_torrent(TorrentSource::Path {
+                path: fixture.to_string(),
+            })
+            .expect("add_torrent should succeed for a valid .torrent file");
+
+        let detail = engine
+            .get_torrent_details(id.clone())
+            .expect("get_torrent_details should succeed for a known torrent");
+
+        assert_eq!(detail.id, id);
+        assert_eq!(detail.files.len(), 1, "fixture is a single-file torrent");
+        assert!(detail.files[0].name.contains("test.txt"));
+        assert!(detail.files[0].size_bytes > 0);
+        assert!((0.0..=100.0).contains(&detail.files[0].progress_percent));
+        assert!((0.0..=100.0).contains(&detail.progress_percent));
+    }
+
+    #[test]
+    fn get_torrent_details_returns_error_for_unknown_id() {
+        let engine = test_engine();
+        let unknown_id = "0".repeat(40);
+
+        assert!(engine.get_torrent_details(unknown_id).is_err());
+    }
+
+    #[test]
+    fn get_torrent_details_matches_get_all_torrents_summary_fields() {
+        let engine = test_engine();
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
+        let id = engine
+            .add_torrent(TorrentSource::Path {
+                path: fixture.to_string(),
+            })
+            .expect("add_torrent should succeed for a valid .torrent file");
+
+        let summary = engine
+            .get_all_torrents()
+            .into_iter()
+            .find(|t| t.id == id)
+            .expect("torrent should appear in get_all_torrents");
+        let detail = engine
+            .get_torrent_details(id)
+            .expect("get_torrent_details should succeed for a known torrent");
+
+        // Both go through `summarize_stats` — a future edit to one call site that
+        // forgets the other would show up here as a mismatch.
+        assert_eq!(detail.status, summary.status);
+        assert_eq!(detail.progress_percent, summary.progress_percent);
+        assert_eq!(detail.down_speed_bps, summary.down_speed_bps);
+        assert_eq!(detail.up_speed_bps, summary.up_speed_bps);
+        assert_eq!(detail.peers_connected, summary.peers_connected);
     }
 
     #[test]

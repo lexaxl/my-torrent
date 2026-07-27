@@ -28,3 +28,22 @@ pub struct TorrentStatus {
     pub up_speed_bps: u64,
     pub peers_connected: u32,
 }
+
+#[derive(uniffi::Record)]
+pub struct TorrentFile {
+    pub name: String,
+    pub size_bytes: u64,
+    pub progress_percent: f64,
+}
+
+#[derive(uniffi::Record)]
+pub struct TorrentDetail {
+    pub id: String,
+    pub name: String,
+    pub status: String,
+    pub progress_percent: f64,
+    pub down_speed_bps: u64,
+    pub up_speed_bps: u64,
+    pub peers_connected: u32,
+    pub files: Vec<TorrentFile>,
+}

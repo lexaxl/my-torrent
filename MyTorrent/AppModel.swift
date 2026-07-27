@@ -130,6 +130,24 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // A read, not a mutation — no `refreshTorrents()` afterward, and returns the
+    // value instead of just success/failure, so it doesn't fit `mutate()`'s shape.
+    // Still an FFI call, still off the main thread per AD-9. Called on its own ~1s
+    // cadence by `TorrentDetailView` while its window is open (Story 2.1 Dev Notes
+    // — separate from this class's own app-lifetime list poll).
+    func fetchTorrentDetail(_ id: String) async -> TorrentDetail? {
+        guard let engine else {
+            logger.error("fetchTorrentDetail called before engine finished initializing")
+            return nil
+        }
+        do {
+            return try await Task.detached { try engine.getTorrentDetails(id: id) }.value
+        } catch {
+            logger.error("fetchTorrentDetail failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
     private func refreshTorrents() async {
         guard let engine else { return }
         torrents = await Task.detached { engine.getAllTorrents() }.value

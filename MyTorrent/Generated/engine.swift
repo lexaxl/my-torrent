@@ -583,6 +583,16 @@ public protocol EngineProtocol: AnyObject, Sendable {
     
     func getAllTorrents()  -> [TorrentStatus]
     
+    /**
+     * Separate from `get_all_torrents` on purpose (Story 2.1 Dev Notes / Consistency
+     * Conventions "Snapshot granularity") — per-file detail is only fetched for the
+     * one torrent whose detail window is open, polled on its own cadence, not folded
+     * into the always-on list poll. Not found for a torrent still only in `pending`
+     * (`find_handle` covers that — see Scope Boundary: the detail window still opens,
+     * it just stays empty until resolution finishes).
+     */
+    func getTorrentDetails(id: String) throws  -> TorrentDetail
+    
     func pauseTorrent(id: String) throws 
     
     /**
@@ -590,7 +600,9 @@ public protocol EngineProtocol: AnyObject, Sendable {
      * (`delete_files: false`) — only stops librqbit from tracking the torrent.
      * Handles both a torrent already known to the session, and one still only
      * in `pending` (magnet metadata not resolved yet) — `session.delete` only
-     * covers the former.
+     * covers the former; for the latter, marks the entry `removed` instead of
+     * dropping it outright so `add_magnet`'s background task can still notice
+     * and undo itself once resolution finishes (see `PendingTorrent::removed`).
      */
     func removeTorrent(id: String) throws 
     
@@ -680,6 +692,24 @@ open func getAllTorrents() -> [TorrentStatus]  {
 })
 }
     
+    /**
+     * Separate from `get_all_torrents` on purpose (Story 2.1 Dev Notes / Consistency
+     * Conventions "Snapshot granularity") — per-file detail is only fetched for the
+     * one torrent whose detail window is open, polled on its own cadence, not folded
+     * into the always-on list poll. Not found for a torrent still only in `pending`
+     * (`find_handle` covers that — see Scope Boundary: the detail window still opens,
+     * it just stays empty until resolution finishes).
+     */
+open func getTorrentDetails(id: String)throws  -> TorrentDetail  {
+    return try  FfiConverterTypeTorrentDetail_lift(try rustCallWithError(FfiConverterTypeEngineError_lift) {
+        uniffiCallStatus in
+    uniffi_engine_fn_method_engine_get_torrent_details(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),uniffiCallStatus
+    )
+})
+}
+    
 open func pauseTorrent(id: String)throws   {try rustCallWithError(FfiConverterTypeEngineError_lift) {
         uniffiCallStatus in
     uniffi_engine_fn_method_engine_pause_torrent(
@@ -694,7 +724,9 @@ open func pauseTorrent(id: String)throws   {try rustCallWithError(FfiConverterTy
      * (`delete_files: false`) — only stops librqbit from tracking the torrent.
      * Handles both a torrent already known to the session, and one still only
      * in `pending` (magnet metadata not resolved yet) — `session.delete` only
-     * covers the former.
+     * covers the former; for the latter, marks the entry `removed` instead of
+     * dropping it outright so `add_magnet`'s background task can still notice
+     * and undo itself once resolution finishes (see `PendingTorrent::removed`).
      */
 open func removeTorrent(id: String)throws   {try rustCallWithError(FfiConverterTypeEngineError_lift) {
         uniffiCallStatus in
@@ -770,6 +802,142 @@ public func FfiConverterTypeEngine_lower(_ value: Engine) -> UInt64 {
 }
 
 
+
+
+public struct TorrentDetail: Equatable, Hashable {
+    public var id: String
+    public var name: String
+    public var status: String
+    public var progressPercent: Double
+    public var downSpeedBps: UInt64
+    public var upSpeedBps: UInt64
+    public var peersConnected: UInt32
+    public var files: [TorrentFile]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, name: String, status: String, progressPercent: Double, downSpeedBps: UInt64, upSpeedBps: UInt64, peersConnected: UInt32, files: [TorrentFile]) {
+        self.id = id
+        self.name = name
+        self.status = status
+        self.progressPercent = progressPercent
+        self.downSpeedBps = downSpeedBps
+        self.upSpeedBps = upSpeedBps
+        self.peersConnected = peersConnected
+        self.files = files
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TorrentDetail: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTorrentDetail: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TorrentDetail {
+        return
+            try TorrentDetail(
+                id: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                status: FfiConverterString.read(from: &buf), 
+                progressPercent: FfiConverterDouble.read(from: &buf), 
+                downSpeedBps: FfiConverterUInt64.read(from: &buf), 
+                upSpeedBps: FfiConverterUInt64.read(from: &buf), 
+                peersConnected: FfiConverterUInt32.read(from: &buf), 
+                files: FfiConverterSequenceTypeTorrentFile.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TorrentDetail, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.status, into: &buf)
+        FfiConverterDouble.write(value.progressPercent, into: &buf)
+        FfiConverterUInt64.write(value.downSpeedBps, into: &buf)
+        FfiConverterUInt64.write(value.upSpeedBps, into: &buf)
+        FfiConverterUInt32.write(value.peersConnected, into: &buf)
+        FfiConverterSequenceTypeTorrentFile.write(value.files, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTorrentDetail_lift(_ buf: RustBuffer) throws -> TorrentDetail {
+    return try FfiConverterTypeTorrentDetail.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTorrentDetail_lower(_ value: TorrentDetail) -> RustBuffer {
+    return FfiConverterTypeTorrentDetail.lower(value)
+}
+
+
+public struct TorrentFile: Equatable, Hashable {
+    public var name: String
+    public var sizeBytes: UInt64
+    public var progressPercent: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(name: String, sizeBytes: UInt64, progressPercent: Double) {
+        self.name = name
+        self.sizeBytes = sizeBytes
+        self.progressPercent = progressPercent
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TorrentFile: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTorrentFile: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TorrentFile {
+        return
+            try TorrentFile(
+                name: FfiConverterString.read(from: &buf), 
+                sizeBytes: FfiConverterUInt64.read(from: &buf), 
+                progressPercent: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TorrentFile, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterUInt64.write(value.sizeBytes, into: &buf)
+        FfiConverterDouble.write(value.progressPercent, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTorrentFile_lift(_ buf: RustBuffer) throws -> TorrentFile {
+    return try FfiConverterTypeTorrentFile.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTorrentFile_lower(_ value: TorrentFile) -> RustBuffer {
+    return FfiConverterTypeTorrentFile.lower(value)
+}
 
 
 public struct TorrentStatus: Equatable, Hashable {
@@ -1005,6 +1173,31 @@ public func FfiConverterTypeTorrentSource_lower(_ value: TorrentSource) -> RustB
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeTorrentFile: FfiConverterRustBuffer {
+    typealias SwiftType = [TorrentFile]
+
+    public static func write(_ value: [TorrentFile], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeTorrentFile.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [TorrentFile] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [TorrentFile]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeTorrentFile.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeTorrentStatus: FfiConverterRustBuffer {
     typealias SwiftType = [TorrentStatus]
 
@@ -1058,10 +1251,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_engine_checksum_method_engine_get_all_torrents() != 57456) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_engine_checksum_method_engine_get_torrent_details() != 44926) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_engine_checksum_method_engine_pause_torrent() != 19909) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_engine_checksum_method_engine_remove_torrent() != 14063) {
+    if (uniffi_engine_checksum_method_engine_remove_torrent() != 8117) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_engine_checksum_method_engine_resume_torrent() != 12939) {

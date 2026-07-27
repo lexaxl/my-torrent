@@ -58,5 +58,12 @@ struct MyTorrentApp: App {
             MainWindowView(appDelegate: appDelegate)
                 .environmentObject(appModel)
         }
+        // Value-based WindowGroup (macOS 13+) — `openWindow(id:value:)` with the same
+        // torrent id activates the existing window instead of opening a duplicate
+        // (Story 2.1 AC4), with no manual "already open?" bookkeeping needed.
+        WindowGroup(id: "torrent-detail", for: String.self) { $torrentId in
+            TorrentDetailView(torrentId: torrentId ?? "")
+                .environmentObject(appModel)
+        }
     }
 }
