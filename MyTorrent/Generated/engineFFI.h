@@ -268,6 +268,26 @@ RustBuffer uniffi_engine_fn_method_engine_add_torrent(uint64_t ptr, RustBuffer s
 RustBuffer uniffi_engine_fn_method_engine_get_all_torrents(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_FN_METHOD_ENGINE_PAUSE_TORRENT
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_FN_METHOD_ENGINE_PAUSE_TORRENT
+void uniffi_engine_fn_method_engine_pause_torrent(uint64_t ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_FN_METHOD_ENGINE_REMOVE_TORRENT
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_FN_METHOD_ENGINE_REMOVE_TORRENT
+void uniffi_engine_fn_method_engine_remove_torrent(uint64_t ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_FN_METHOD_ENGINE_RESUME_TORRENT
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_FN_METHOD_ENGINE_RESUME_TORRENT
+void uniffi_engine_fn_method_engine_resume_torrent(uint64_t ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_FN_METHOD_ENGINE_REVEAL_PATH
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_FN_METHOD_ENGINE_REVEAL_PATH
+RustBuffer uniffi_engine_fn_method_engine_reveal_path(uint64_t ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_FN_FUNC_ENGINE_VERSION
 #define UNIFFI_FFIDEF_UNIFFI_ENGINE_FN_FUNC_ENGINE_VERSION
 RustBuffer uniffi_engine_fn_func_engine_version(RustCallStatus *_Nonnull out_status
@@ -549,6 +569,30 @@ uint16_t uniffi_engine_checksum_method_engine_add_torrent(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_CHECKSUM_METHOD_ENGINE_GET_ALL_TORRENTS
 #define UNIFFI_FFIDEF_UNIFFI_ENGINE_CHECKSUM_METHOD_ENGINE_GET_ALL_TORRENTS
 uint16_t uniffi_engine_checksum_method_engine_get_all_torrents(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_CHECKSUM_METHOD_ENGINE_PAUSE_TORRENT
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_CHECKSUM_METHOD_ENGINE_PAUSE_TORRENT
+uint16_t uniffi_engine_checksum_method_engine_pause_torrent(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_CHECKSUM_METHOD_ENGINE_REMOVE_TORRENT
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_CHECKSUM_METHOD_ENGINE_REMOVE_TORRENT
+uint16_t uniffi_engine_checksum_method_engine_remove_torrent(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_CHECKSUM_METHOD_ENGINE_RESUME_TORRENT
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_CHECKSUM_METHOD_ENGINE_RESUME_TORRENT
+uint16_t uniffi_engine_checksum_method_engine_resume_torrent(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_CHECKSUM_METHOD_ENGINE_REVEAL_PATH
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_CHECKSUM_METHOD_ENGINE_REVEAL_PATH
+uint16_t uniffi_engine_checksum_method_engine_reveal_path(void
     
 );
 #endif

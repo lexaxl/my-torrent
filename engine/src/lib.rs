@@ -4,11 +4,15 @@ mod types;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::sync::Arc;
 
-use librqbit::{AddTorrent, Magnet, Session, SessionOptions, TorrentStatsState};
+use librqbit::api::TorrentIdOrHash;
+use librqbit::{AddTorrent, Api, ManagedTorrent, Magnet, Session, SessionOptions, TorrentStatsState};
+use librqbit_core::Id20;
 
 pub use types::{EngineError, TorrentSource, TorrentStatus};
 
@@ -58,6 +62,17 @@ struct PendingTorrent {
     // Set once the background resolution in `add_magnet` fails, so `get_all_torrents`
     // can report "error" instead of the entry just disappearing with no explanation.
     failed: bool,
+    // Set by `remove_torrent` when the user removes this torrent before the background
+    // resolution in `add_magnet` has finished. The entry stays in `pending` (hidden from
+    // `get_all_torrents`, see below) only so that background task can notice the removal
+    // and undo whatever it was about to do — delete a torrent it just registered in the
+    // session, or drop the entry instead of marking it "error" — rather than letting a
+    // torrent the user already removed silently reappear or resurface as an error row.
+    removed: bool,
+    // Assigned from `Engine::next_pending_seq` at insertion — `pending` is a HashMap
+    // (unordered), but the UX spec requires insertion order, no sorting. See
+    // `get_all_torrents` for how this is used to sort pending entries back into order.
+    seq: u64,
 }
 
 #[derive(uniffi::Object)]
@@ -67,6 +82,12 @@ pub struct Engine {
     // not visible via `session.with_torrents` until resolution finishes, so tracked here
     // so `get_all_torrents` can still surface them immediately.
     pending: Arc<Mutex<HashMap<String, PendingTorrent>>>,
+    // Only public way to read a torrent's output folder (Story 1.5, reveal_path) —
+    // `ManagedTorrentShared::options` is `pub(crate)` inside librqbit, unreachable
+    // from here directly.
+    api: Api,
+    // Monotonic counter for `PendingTorrent::seq` — see there.
+    next_pending_seq: AtomicU64,
 }
 
 #[uniffi::export]
@@ -76,9 +97,12 @@ impl Engine {
         let session = runtime()
             .block_on(Session::new(download_dir.into()))
             .map_err(internal_error)?;
+        let api = Api::new(session.clone(), None);
         Ok(Arc::new(Self {
             session,
             pending: Arc::new(Mutex::new(HashMap::new())),
+            api,
+            next_pending_seq: AtomicU64::new(0),
         }))
     }
 
@@ -96,9 +120,15 @@ impl Engine {
     }
 
     pub fn get_all_torrents(&self) -> Vec<TorrentStatus> {
-        let mut result: Vec<TorrentStatus> = self.session.with_torrents(|torrents| {
+        // `with_torrents`' `usize` is the index librqbit itself assigned when the
+        // torrent was added to the session (`AddTorrentResponse::Added(usize, ..)`)
+        // — a real insertion-order signal from the engine, not invented here. The
+        // UX spec requires insertion order with no sorting; `with_torrents`'
+        // iteration order is not guaranteed to match it, so sort by that index
+        // explicitly rather than trusting iteration order.
+        let mut session_torrents: Vec<(usize, TorrentStatus)> = self.session.with_torrents(|torrents| {
             torrents
-                .map(|(_, torrent)| {
+                .map(|(idx, torrent)| {
                     let stats = torrent.stats();
                     let status = derive_status(stats.state, stats.finished);
                     let (down_speed_bps, up_speed_bps, peers_connected) = match &stats.live {
@@ -114,39 +144,120 @@ impl Engine {
                     } else {
                         stats.progress_bytes as f64 / stats.total_bytes as f64 * 100.0
                     };
-                    TorrentStatus {
-                        id: torrent.info_hash().as_string(),
-                        name: torrent.name().unwrap_or_default(),
-                        status: status.to_string(),
-                        progress_percent,
-                        down_speed_bps,
-                        up_speed_bps,
-                        peers_connected,
-                    }
+                    (
+                        idx,
+                        TorrentStatus {
+                            id: torrent.info_hash().as_string(),
+                            name: torrent.name().unwrap_or_default(),
+                            status: status.to_string(),
+                            progress_percent,
+                            down_speed_bps,
+                            up_speed_bps,
+                            peers_connected,
+                        },
+                    )
                 })
                 .collect()
         });
+        session_torrents.sort_by_key(|(idx, _)| *idx);
+        let mut result: Vec<TorrentStatus> =
+            session_torrents.into_iter().map(|(_, status)| status).collect();
 
         let existing_ids: HashSet<String> = result.iter().map(|t| t.id.clone()).collect();
-        for (id, pending) in self.pending.lock().unwrap().iter() {
-            if !existing_ids.contains(id) {
-                result.push(TorrentStatus {
-                    id: id.clone(),
-                    name: pending.name.clone(),
-                    status: if pending.failed { "error" } else { "resolving" }.to_string(),
-                    progress_percent: 0.0,
-                    down_speed_bps: 0,
-                    up_speed_bps: 0,
-                    peers_connected: 0,
-                });
-            }
-        }
+        let mut pending_torrents: Vec<(u64, TorrentStatus)> = self
+            .pending
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(id, pending)| !pending.removed && !existing_ids.contains(*id))
+            .map(|(id, pending)| {
+                (
+                    pending.seq,
+                    TorrentStatus {
+                        id: id.clone(),
+                        name: pending.name.clone(),
+                        status: if pending.failed { "error" } else { "resolving" }.to_string(),
+                        progress_percent: 0.0,
+                        down_speed_bps: 0,
+                        up_speed_bps: 0,
+                        peers_connected: 0,
+                    },
+                )
+            })
+            .collect();
+        pending_torrents.sort_by_key(|(seq, _)| *seq);
+        result.extend(pending_torrents.into_iter().map(|(_, status)| status));
 
         result
+    }
+
+    pub fn pause_torrent(&self, id: String) -> Result<(), EngineError> {
+        let handle = self.find_handle(&id)?;
+        runtime()
+            .block_on(self.session.pause(&handle))
+            .map_err(internal_error)
+    }
+
+    pub fn resume_torrent(&self, id: String) -> Result<(), EngineError> {
+        let handle = self.find_handle(&id)?;
+        runtime()
+            .block_on(self.session.unpause(&handle))
+            .map_err(internal_error)
+    }
+
+    /// Per Scope Boundary (Story 1.5): never deletes downloaded files
+    /// (`delete_files: false`) — only stops librqbit from tracking the torrent.
+    /// Handles both a torrent already known to the session, and one still only
+    /// in `pending` (magnet metadata not resolved yet) — `session.delete` only
+    /// covers the former; for the latter, marks the entry `removed` instead of
+    /// dropping it outright so `add_magnet`'s background task can still notice
+    /// and undo itself once resolution finishes (see `PendingTorrent::removed`).
+    pub fn remove_torrent(&self, id: String) -> Result<(), EngineError> {
+        let idor = Self::parse_id(&id)?;
+        if self.session.get(idor).is_some() {
+            runtime()
+                .block_on(self.session.delete(idor, false))
+                .map_err(internal_error)?;
+            // Idempotent: clears a pending entry even here, in case resolution
+            // finished and registered the torrent in the session between
+            // `get_all_torrents` and this call.
+            self.pending.lock().unwrap().remove(&id);
+        } else {
+            match self.pending.lock().unwrap().get_mut(&id) {
+                Some(entry) => entry.removed = true,
+                None => return Err(internal_error(format!("torrent not found: {id}"))),
+            }
+        }
+        Ok(())
+    }
+
+    pub fn reveal_path(&self, id: String) -> Result<String, EngineError> {
+        let idor = Self::parse_id(&id)?;
+        Ok(self
+            .api
+            .api_torrent_details(idor)
+            .map_err(internal_error)?
+            .output_folder)
     }
 }
 
 impl Engine {
+    fn parse_id(id: &str) -> Result<TorrentIdOrHash, EngineError> {
+        Id20::from_str(id)
+            .map(TorrentIdOrHash::Hash)
+            .map_err(internal_error)
+    }
+
+    /// Shared by `pause_torrent`/`resume_torrent` — both need a live session handle
+    /// and neither applies to a torrent still only in `pending` (no handle exists
+    /// until librqbit has actually registered it).
+    fn find_handle(&self, id: &str) -> Result<Arc<ManagedTorrent>, EngineError> {
+        let idor = Self::parse_id(id)?;
+        self.session
+            .get(idor)
+            .ok_or_else(|| internal_error(format!("torrent not found: {id}")))
+    }
+
     /// Adds a torrent whose metadata is already known (`.torrent` file/bytes) —
     /// librqbit registers these synchronously without waiting on any peer.
     fn add_torrent_blocking(&self, add: AddTorrent<'static>) -> Result<String, EngineError> {
@@ -181,11 +292,14 @@ impl Engine {
         let id = id20.as_string();
         let name = magnet.name.clone().unwrap_or_else(|| id.clone());
 
+        let seq = self.next_pending_seq.fetch_add(1, Ordering::Relaxed);
         self.pending.lock().unwrap().insert(
             id.clone(),
             PendingTorrent {
                 name,
                 failed: false,
+                removed: false,
+                seq,
             },
         );
 
@@ -195,11 +309,34 @@ impl Engine {
         runtime().spawn(async move {
             match session.add_torrent(AddTorrent::from_url(uri), None).await {
                 Ok(_) => {
+                    let was_removed = pending
+                        .lock()
+                        .unwrap()
+                        .get(&pending_id)
+                        .map(|entry| entry.removed)
+                        .unwrap_or(false);
+                    if was_removed {
+                        // The user removed this torrent while it was still resolving —
+                        // undo the registration `session.add_torrent` just completed so
+                        // it doesn't resurface in `get_all_torrents` (Story 1.5).
+                        if let Ok(idor) = Self::parse_id(&pending_id) {
+                            if let Err(err) = session.delete(idor, false).await {
+                                eprintln!(
+                                    "add_magnet: failed to undo removed-while-resolving torrent {pending_id}: {err:#}"
+                                );
+                            }
+                        }
+                    }
                     pending.lock().unwrap().remove(&pending_id);
                 }
                 Err(err) => {
                     eprintln!("add_magnet: background resolution failed for {pending_id}: {err:#}");
-                    if let Some(entry) = pending.lock().unwrap().get_mut(&pending_id) {
+                    let mut guard = pending.lock().unwrap();
+                    let was_removed = guard.get(&pending_id).map(|e| e.removed).unwrap_or(false);
+                    if was_removed {
+                        // Already removed by the user — don't resurrect it as an "error" row.
+                        guard.remove(&pending_id);
+                    } else if let Some(entry) = guard.get_mut(&pending_id) {
                         entry.failed = true;
                     }
                 }
@@ -238,9 +375,12 @@ mod tests {
                 },
             ))
             .unwrap();
+        let api = Api::new(session.clone(), None);
         Arc::new(Engine {
             session,
             pending: Arc::new(Mutex::new(HashMap::new())),
+            api,
+            next_pending_seq: AtomicU64::new(0),
         })
     }
 
@@ -259,9 +399,12 @@ mod tests {
                 },
             ))
             .unwrap();
+        let api = Api::new(session.clone(), None);
         Arc::new(Engine {
             session,
             pending: Arc::new(Mutex::new(HashMap::new())),
+            api,
+            next_pending_seq: AtomicU64::new(0),
         })
     }
 
@@ -361,6 +504,125 @@ mod tests {
         assert_eq!(torrent.down_speed_bps, 0);
         assert_eq!(torrent.up_speed_bps, 0);
         assert_eq!(torrent.peers_connected, 0);
+    }
+
+    #[test]
+    fn pause_torrent_then_resume_torrent_round_trips() {
+        let engine = test_engine();
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
+        let id = engine
+            .add_torrent(TorrentSource::Path {
+                path: fixture.to_string(),
+            })
+            .expect("add_torrent should succeed for a valid .torrent file");
+
+        // `pause` only succeeds once librqbit's internal state has left
+        // "Initializing" (the disk-hash-check phase) for "Live" — see
+        // `add_torrent_from_file_reports_progress_and_live_metric_fields` above,
+        // which shows this transition isn't deterministic in timing. Bounded
+        // poll instead of asserting instantly (same pattern as the magnet
+        // resolution-failure test below).
+        let mut checking_done = false;
+        for _ in 0..100 {
+            if engine
+                .get_all_torrents()
+                .into_iter()
+                .any(|t| t.id == id && t.status != "checking")
+            {
+                checking_done = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(checking_done, "torrent never left the checking state");
+
+        engine
+            .pause_torrent(id.clone())
+            .expect("pause_torrent should succeed for a known torrent");
+        let paused = engine.get_all_torrents();
+        assert_eq!(paused.len(), 1);
+        assert_eq!(paused[0].status, "paused");
+
+        engine
+            .resume_torrent(id.clone())
+            .expect("resume_torrent should succeed for a paused torrent");
+        let resumed = engine.get_all_torrents();
+        assert_eq!(resumed.len(), 1);
+        assert_ne!(resumed[0].status, "paused");
+    }
+
+    #[test]
+    fn remove_torrent_removes_from_get_all_torrents() {
+        let engine = test_engine();
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
+        let id = engine
+            .add_torrent(TorrentSource::Path {
+                path: fixture.to_string(),
+            })
+            .expect("add_torrent should succeed for a valid .torrent file");
+
+        engine
+            .remove_torrent(id)
+            .expect("remove_torrent should succeed for a known torrent");
+
+        assert!(engine.get_all_torrents().is_empty());
+    }
+
+    #[test]
+    fn remove_torrent_removes_still_pending_magnet() {
+        let engine = test_engine_no_peer_sources();
+        let magnet = "magnet:?xt=urn:btih:0000000000000000000000000000000000000000";
+        let id = engine
+            .add_torrent(TorrentSource::Magnet {
+                uri: magnet.to_string(),
+            })
+            .expect("add_torrent should succeed for a well-formed magnet link");
+
+        // Whether background resolution has already failed (marking the entry
+        // "error") or is still in flight ("resolving") at this point is a race —
+        // remove_torrent must succeed either way, since both cases only exist in
+        // `pending`, never in the session (no real peers/DHT in this test setup).
+        engine
+            .remove_torrent(id)
+            .expect("remove_torrent should succeed for a still-pending magnet");
+
+        assert!(engine.get_all_torrents().is_empty());
+    }
+
+    #[test]
+    fn get_all_torrents_preserves_insertion_order_for_pending_magnets() {
+        // `pending` is a HashMap — iteration order is not insertion order. This
+        // test would be flaky/fail without the `seq`-based sort in
+        // `get_all_torrents` (three distinct, well-formed-but-unreachable
+        // infohashes, so nothing resolves during the test).
+        let engine = test_engine();
+        // 40-char hex infohashes ("1".repeat(39) + "a", etc.) — well-formed but
+        // unreachable, same convention as the other magnet tests in this file.
+        let ids: Vec<String> = ["1", "2", "3"]
+            .iter()
+            .map(|d| format!("{}{d}", d.repeat(39)))
+            .collect();
+
+        for id in &ids {
+            engine
+                .add_torrent(TorrentSource::Magnet {
+                    uri: format!("magnet:?xt=urn:btih:{id}"),
+                })
+                .expect("add_torrent should succeed for a well-formed magnet link");
+        }
+
+        let torrents = engine.get_all_torrents();
+        let observed: Vec<&str> = torrents.iter().map(|t| t.id.as_str()).collect();
+        let expected: Vec<&str> = ids.iter().map(String::as_str).collect();
+        assert_eq!(observed, expected);
+    }
+
+    #[test]
+    fn pause_torrent_returns_error_for_unknown_id() {
+        let engine = test_engine();
+        let unknown_id = "0".repeat(40);
+
+        assert!(engine.pause_torrent(unknown_id).is_err());
     }
 
     #[test]

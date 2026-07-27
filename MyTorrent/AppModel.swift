@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import os
 
@@ -10,7 +11,12 @@ private let logger = Logger(
 final class AppModel: ObservableObject {
     @Published private(set) var torrents: [TorrentStatus] = []
 
-    private let engine: Engine
+    // Optional, not `let` — construction is a blocking FFI call (Session::new),
+    // which AD-9 requires off the main thread. `init()` can't be async (SwiftUI's
+    // `@StateObject` requires a synchronous initializer), so this starts as nil
+    // and is set once `setUpEngine` finishes in the background. Every method that
+    // reads it guards against the brief pre-initialization window.
+    private var engine: Engine?
     private var pollingTask: Task<Void, Never>?
 
     // Matches the Architecture Spine's Consistency Conventions
@@ -28,8 +34,12 @@ final class AppModel: ObservableObject {
             .first?.path
             ?? NSString(string: "~/Downloads").expandingTildeInPath
 
+        Task { await setUpEngine(downloadDir: downloadDir) }
+    }
+
+    private func setUpEngine(downloadDir: String) async {
         do {
-            engine = try Engine(downloadDir: downloadDir)
+            engine = try await Task.detached { try Engine(downloadDir: downloadDir) }.value
         } catch {
             logger.fault("failed to initialize torrent engine: \(String(describing: error), privacy: .public)")
             fatalError("Failed to initialize torrent engine: \(error)")
@@ -38,15 +48,14 @@ final class AppModel: ObservableObject {
         // AD-4 bootstrap exemption: one unconditional snapshot at launch, regardless
         // of whether anything is known to be active yet, to discover torrents
         // librqbit auto-resumed from its own session state.
-        Task { await bootstrap() }
-    }
-
-    private func bootstrap() async {
         await refreshTorrents()
     }
 
     func addTorrent(_ source: TorrentSource) async {
-        let engine = self.engine
+        guard let engine else {
+            logger.error("addTorrent called before engine finished initializing")
+            return
+        }
 
         let result: Result<String, EngineError> = await Task.detached {
             do {
@@ -66,8 +75,63 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func pauseTorrent(_ id: String) async {
+        await mutate(id, label: "pauseTorrent") { engine, id in try engine.pauseTorrent(id: id) }
+    }
+
+    func resumeTorrent(_ id: String) async {
+        await mutate(id, label: "resumeTorrent") { engine, id in try engine.resumeTorrent(id: id) }
+    }
+
+    func removeTorrent(_ id: String) async {
+        await mutate(id, label: "removeTorrent") { engine, id in try engine.removeTorrent(id: id) }
+    }
+
+    // Shared by pauseTorrent/resumeTorrent/removeTorrent — same shape (FFI call off
+    // the main thread per AD-9, refresh on success, log-and-swallow on failure per
+    // the existing no-user-facing-error-UI convention).
+    private func mutate(
+        _ id: String,
+        label: String,
+        _ operation: @escaping (Engine, String) throws -> Void
+    ) async {
+        guard let engine else {
+            logger.error("\(label, privacy: .public) called before engine finished initializing")
+            return
+        }
+        do {
+            try await Task.detached { try operation(engine, id) }.value
+            await refreshTorrents()
+        } catch {
+            logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    // Not a mutation, but still an FFI call — stays off the main thread per AD-9
+    // regardless. Reveals (selects) the torrent's output folder in Finder rather
+    // than opening it, matching "Show in Finder" semantics. Checks the folder
+    // actually exists first — `NSWorkspace.selectFile` silently does nothing on a
+    // missing path (e.g. right-clicking before librqbit has created it yet), and
+    // that would otherwise look identical to a successful reveal.
+    func revealInFinder(_ id: String) async {
+        guard let engine else {
+            logger.error("revealInFinder called before engine finished initializing")
+            return
+        }
+        do {
+            let path = try await Task.detached { try engine.revealPath(id: id) }.value
+            guard FileManager.default.fileExists(atPath: path) else {
+                logger.error("revealInFinder: output folder does not exist yet: \(path, privacy: .public)")
+                return
+            }
+            NSWorkspace.shared.selectFile(path, inFileViewerRootedAtPath: "")
+        } catch {
+            logger.error("revealInFinder failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     private func refreshTorrents() async {
-        let engine = self.engine
+        guard let engine else { return }
         torrents = await Task.detached { engine.getAllTorrents() }.value
         startPollingIfNeeded()
     }

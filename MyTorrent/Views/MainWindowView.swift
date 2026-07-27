@@ -11,6 +11,7 @@ struct MainWindowView: View {
     @EnvironmentObject private var appModel: AppModel
     @Environment(\.openWindow) private var openWindow
     @State private var searchText: String = ""
+    @State private var torrentPendingRemoval: TorrentStatus?
 
     let appDelegate: AppDelegate
 
@@ -36,6 +37,20 @@ struct MainWindowView: View {
                     handleOpenURL(url)
                 }
             }
+        }
+        .confirmationDialog(
+            "main_window.row.context_menu.remove_confirm_title",
+            isPresented: Binding(
+                get: { torrentPendingRemoval != nil },
+                set: { if !$0 { torrentPendingRemoval = nil } }
+            ),
+            presenting: torrentPendingRemoval
+        ) { torrent in
+            Button("main_window.row.context_menu.remove", role: .destructive) {
+                Task { await appModel.removeTorrent(torrent.id) }
+            }
+        } message: { _ in
+            Text("main_window.row.context_menu.remove_confirm_message")
         }
     }
 
@@ -145,6 +160,37 @@ struct MainWindowView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .contextMenu {
+            Button {
+                Task {
+                    // Look up the live status at click time rather than trusting
+                    // the `torrent` value captured when this menu was built — the
+                    // 1s poll loop can change it while the menu is open, and acting
+                    // on a stale snapshot here (unlike the label below, which macOS
+                    // doesn't let us update once the menu is showing) would call
+                    // the wrong one of pause/resume and silently fail.
+                    let liveStatus = appModel.torrents.first(where: { $0.id == torrent.id })?.status
+                    if liveStatus == "paused" {
+                        await appModel.resumeTorrent(torrent.id)
+                    } else {
+                        await appModel.pauseTorrent(torrent.id)
+                    }
+                }
+            } label: {
+                Text(torrent.status == "paused" ? "main_window.row.context_menu.resume" : "main_window.row.context_menu.pause")
+            }
+            .disabled(torrent.status == "error")
+            Button(role: .destructive) {
+                torrentPendingRemoval = torrent
+            } label: {
+                Text("main_window.row.context_menu.remove")
+            }
+            Button {
+                Task { await appModel.revealInFinder(torrent.id) }
+            } label: {
+                Text("main_window.row.context_menu.reveal_in_finder")
+            }
+        }
     }
 
     private static let speedFormatter: ByteCountFormatter = {

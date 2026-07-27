@@ -13,6 +13,7 @@ path = "uniffi-bindgen.rs"
 [dependencies]
 uniffi = { version = "0.32", features = ["cli"] }
 librqbit = "8.1"
+librqbit-core = "5"
 tokio = { version = "1", features = ["full"] }
 
 [dev-dependencies]

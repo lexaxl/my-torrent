@@ -583,6 +583,21 @@ public protocol EngineProtocol: AnyObject, Sendable {
     
     func getAllTorrents()  -> [TorrentStatus]
     
+    func pauseTorrent(id: String) throws 
+    
+    /**
+     * Per Scope Boundary (Story 1.5): never deletes downloaded files
+     * (`delete_files: false`) — only stops librqbit from tracking the torrent.
+     * Handles both a torrent already known to the session, and one still only
+     * in `pending` (magnet metadata not resolved yet) — `session.delete` only
+     * covers the former.
+     */
+    func removeTorrent(id: String) throws 
+    
+    func resumeTorrent(id: String) throws 
+    
+    func revealPath(id: String) throws  -> String
+    
 }
 open class Engine: EngineProtocol, @unchecked Sendable {
     fileprivate let handle: UInt64
@@ -661,6 +676,50 @@ open func getAllTorrents() -> [TorrentStatus]  {
         uniffiCallStatus in
     uniffi_engine_fn_method_engine_get_all_torrents(
             self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+open func pauseTorrent(id: String)throws   {try rustCallWithError(FfiConverterTypeEngineError_lift) {
+        uniffiCallStatus in
+    uniffi_engine_fn_method_engine_pause_torrent(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Per Scope Boundary (Story 1.5): never deletes downloaded files
+     * (`delete_files: false`) — only stops librqbit from tracking the torrent.
+     * Handles both a torrent already known to the session, and one still only
+     * in `pending` (magnet metadata not resolved yet) — `session.delete` only
+     * covers the former.
+     */
+open func removeTorrent(id: String)throws   {try rustCallWithError(FfiConverterTypeEngineError_lift) {
+        uniffiCallStatus in
+    uniffi_engine_fn_method_engine_remove_torrent(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),uniffiCallStatus
+    )
+}
+}
+    
+open func resumeTorrent(id: String)throws   {try rustCallWithError(FfiConverterTypeEngineError_lift) {
+        uniffiCallStatus in
+    uniffi_engine_fn_method_engine_resume_torrent(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),uniffiCallStatus
+    )
+}
+}
+    
+open func revealPath(id: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEngineError_lift) {
+        uniffiCallStatus in
+    uniffi_engine_fn_method_engine_reveal_path(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),uniffiCallStatus
     )
 })
 }
@@ -997,6 +1056,18 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_engine_checksum_method_engine_get_all_torrents() != 57456) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_checksum_method_engine_pause_torrent() != 19909) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_checksum_method_engine_remove_torrent() != 14063) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_checksum_method_engine_resume_torrent() != 12939) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_checksum_method_engine_reveal_path() != 12696) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_engine_checksum_constructor_engine_new() != 1538) {
