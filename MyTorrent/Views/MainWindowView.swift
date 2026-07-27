@@ -83,13 +83,22 @@ struct MainWindowView: View {
         .padding(12)
     }
 
+    // Local, client-side filter over the already-loaded list — no network call,
+    // matches UX spec `main-window-toolbar-search-field`. Deliberately not used
+    // for the emptyState/downloadsList switch below: that's about "no torrents at
+    // all", not "search matched nothing" — see Story 1.4 Scope Boundary.
+    private var filteredTorrents: [TorrentStatus] {
+        guard !searchText.isEmpty else { return appModel.torrents }
+        return appModel.torrents.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+    }
+
     private var downloadsList: some View {
         VStack(spacing: 0) {
             columnHeaders
             Divider()
             ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(appModel.torrents, id: \.id) { torrent in
+                    ForEach(filteredTorrents, id: \.id) { torrent in
                         torrentRow(torrent)
                         Divider()
                     }
