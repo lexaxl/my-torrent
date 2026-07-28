@@ -58,8 +58,7 @@ struct MainWindowView: View {
     // for this singleton `Window("main")` — it activates the existing window, or
     // recreates it if the user closed it while the app kept running.
     private func handleOpenURL(_ url: URL) {
-        NSApp.activate(ignoringOtherApps: true)
-        openWindow(id: "main")
+        AppModel.activateAndOpenWindow(id: WindowID.main, openWindow: openWindow)
 
         let source: TorrentSource
         if url.scheme == "magnet" {
@@ -88,7 +87,7 @@ struct MainWindowView: View {
             Spacer()
 
             Button {
-                openWindow(id: "settings")
+                openWindow(id: WindowID.settings)
             } label: {
                 Image(systemName: "gearshape")
             }
@@ -169,7 +168,7 @@ struct MainWindowView: View {
         .contentShape(Rectangle())
         .simultaneousGesture(
             TapGesture().onEnded {
-                openWindow(id: "torrent-detail", value: torrent.id)
+                openWindow(id: WindowID.torrentDetail, value: torrent.id)
             }
         )
         .contextMenu {

@@ -7,6 +7,15 @@ private let logger = Logger(
     category: "startup"
 )
 
+// Scene id constants — shared by this file's own scene declarations and every
+// `openWindow(id:)` call site (MainWindowView, MenuBarView) so a typo becomes a
+// compile error instead of a silently-do-nothing runtime call.
+enum WindowID {
+    static let main = "main"
+    static let settings = "settings"
+    static let torrentDetail = "torrent-detail"
+}
+
 // `Window` (singleton scene) + `.onOpenURL` don't fire on macOS — SwiftUI only
 // delivers open-URL/open-file external events to `.onOpenURL` on `WindowGroup`,
 // which instead opens a new window per event (wrong for this single-window app).
@@ -54,21 +63,21 @@ struct MyTorrentApp: App {
     }
 
     var body: some Scene {
-        Window("MyTorrent", id: "main") {
+        Window("MyTorrent", id: WindowID.main) {
             MainWindowView(appDelegate: appDelegate)
                 .environmentObject(appModel)
         }
         // Value-based WindowGroup (macOS 13+) — `openWindow(id:value:)` with the same
         // torrent id activates the existing window instead of opening a duplicate
         // (Story 2.1 AC4), with no manual "already open?" bookkeeping needed.
-        WindowGroup(id: "torrent-detail", for: String.self) { $torrentId in
+        WindowGroup(id: WindowID.torrentDetail, for: String.self) { $torrentId in
             TorrentDetailView(torrentId: torrentId ?? "")
                 .environmentObject(appModel)
         }
         // Singleton scene, like "main" — settings aren't tied to a per-entity id,
         // so this is `Window`, not `WindowGroup(for:)` (Story 2.1's pattern for
         // per-torrent windows doesn't apply here).
-        Window("settings.header.title", id: "settings") {
+        Window("settings.header.title", id: WindowID.settings) {
             SettingsView()
         }
         // `SettingsView` has no `ScrollView`, so if the window were resizable below
@@ -80,5 +89,23 @@ struct MyTorrentApp: App {
         // instead of guessing a magic-number minHeight that has to be hand-kept in
         // sync with the form's content every time a section is added/removed.
         .windowResizability(.contentSize)
+
+        // 4.1 — always-present menu-bar entry point (AD-7's persistent presence).
+        // `.window` style (not `.menu`) so the popover can be an arbitrary SwiftUI
+        // layout (stats block + actions block) instead of system menu-item rows;
+        // it already opens on click, not hover, by default. Reads the same poll
+        // data (`AppModel.torrents`) the popover itself uses — no separate poll.
+        MenuBarExtra {
+            MenuBarView()
+                .environmentObject(appModel)
+        } label: {
+            // `hasActiveTorrents` short-circuits (`contains(where:)`), unlike
+            // `activeTorrents.isEmpty` which would allocate the full filtered
+            // array just to answer a yes/no question on every poll tick.
+            Image(systemName: appModel.hasActiveTorrents
+                ? "arrow.up.arrow.down.circle.fill"
+                : "arrow.up.arrow.down.circle")
+        }
+        .menuBarExtraStyle(.window)
     }
 }

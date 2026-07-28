@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import os
+import SwiftUI
 
 private let logger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.alex.mytorrent.MyTorrent",
@@ -25,6 +26,33 @@ final class AppModel: ObservableObject {
     // before magnets existed), but must count as active or the poller would
     // never catch its transition into a real status.
     private static let activeStatuses: Set<String> = ["checking", "downloading", "seeding", "resolving"]
+
+    // Single source of truth for the active/inactive partition — `startPollingIfNeeded`/
+    // `pollLoop` (below) and the menu-bar popover (Story 4.1) both read this instead of
+    // each re-checking `activeStatuses` independently.
+    var hasActiveTorrents: Bool {
+        torrents.contains(where: { Self.activeStatuses.contains($0.status) })
+    }
+
+    // Second consumer of the active/inactive partition (Story 4.1's menu-bar
+    // popover's stats section, which needs the actual elements to sum speeds —
+    // `hasActiveTorrents` above covers the boolean-only cases).
+    // Deliberately includes "resolving" torrents (0/0 speed, no bytes yet) even
+    // though a resolving magnet reads a little oddly as an "active download" in
+    // the popover — magnet resolution is normally sub-second, and forking this
+    // definition into a separate "poll-active" vs "display-active" set purely to
+    // hide that brief blip isn't worth the two-definitions-to-keep-in-sync risk.
+    var activeTorrents: [TorrentStatus] {
+        torrents.filter { Self.activeStatuses.contains($0.status) }
+    }
+
+    // Shared by MainWindowView.handleOpenURL and MenuBarView's popover actions —
+    // both need to activate the app before opening a window, since either can be
+    // triggered while MyTorrent (an LSUIElement accessory app) isn't frontmost.
+    static func activateAndOpenWindow(id: String, openWindow: OpenWindowAction) {
+        NSApp.activate(ignoringOtherApps: true)
+        openWindow(id: id)
+    }
 
     init() {
         Task { await setUpEngine(downloadDir: AppSettings.saveLocationPath) }
@@ -156,7 +184,7 @@ final class AppModel: ObservableObject {
     // rather than unconditionally, and stops itself once nothing is active anymore.
     private func startPollingIfNeeded() {
         guard pollingTask == nil else { return }
-        guard torrents.contains(where: { Self.activeStatuses.contains($0.status) }) else { return }
+        guard hasActiveTorrents else { return }
 
         pollingTask = Task { [weak self] in
             await self?.pollLoop()
@@ -169,7 +197,7 @@ final class AppModel: ObservableObject {
             // Calls back into `startPollingIfNeeded()`, which no-ops here since
             // `pollingTask` is still this very task (not yet nil).
             await refreshTorrents()
-            if !torrents.contains(where: { Self.activeStatuses.contains($0.status) }) {
+            if !hasActiveTorrents {
                 break
             }
         }
