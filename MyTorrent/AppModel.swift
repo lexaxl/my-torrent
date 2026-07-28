@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import os
 import SwiftUI
+import UserNotifications
 
 private let logger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.alex.mytorrent.MyTorrent",
@@ -20,12 +21,19 @@ final class AppModel: ObservableObject {
     private var engine: Engine?
     private var pollingTask: Task<Void, Never>?
 
+    // nil until the first snapshot — distinguishes "no snapshot yet" (bootstrap,
+    // AD-4/AC3: don't notify about torrents already seeding when the app launched)
+    // from "snapshot was empty". Keyed by torrent id (infohash), value is that
+    // torrent's status as of the previous snapshot.
+    private var previousStatusByID: [String: String]?
+
     // Matches the Architecture Spine's Consistency Conventions
     // (active = {Downloading, Checking, Seeding}), plus "resolving" — a magnet
     // pending background resolution (Story 1.2) isn't in that table (written
     // before magnets existed), but must count as active or the poller would
     // never catch its transition into a real status.
-    private static let activeStatuses: Set<String> = ["checking", "downloading", "seeding", "resolving"]
+    private static let seedingStatus = "seeding"
+    private static let activeStatuses: Set<String> = ["checking", "downloading", seedingStatus, "resolving"]
 
     // Single source of truth for the active/inactive partition — `startPollingIfNeeded`/
     // `pollLoop` (below) and the menu-bar popover (Story 4.1) both read this instead of
@@ -64,6 +72,28 @@ final class AppModel: ObservableObject {
         } catch {
             logger.fault("failed to initialize torrent engine: \(String(describing: error), privacy: .public)")
             fatalError("Failed to initialize torrent engine: \(error)")
+        }
+
+        // Fire-and-forget — doesn't block the bootstrap snapshot below. Safe to
+        // call on every launch: if the user already granted/denied, this returns
+        // the stored decision without re-prompting. Denial isn't surfaced as an
+        // error to the user (same no-user-facing-error-UI convention as
+        // addTorrent/mutate below) — notifications just silently don't show.
+        // Code-review-noted, accepted gap: a torrent that finishes in the narrow
+        // window before the user answers this (first-launch-only) system prompt
+        // has its completion notification silently dropped — `add(_:)` is called
+        // once per transition (no retry/queue), so it isn't re-sent once granted.
+        // Not fixed: this window is a few seconds on a single first-ever launch,
+        // and queuing/replaying missed completions is real added machinery for a
+        // vanishingly rare race in a single-user hobby app.
+        Task {
+            do {
+                let granted = try await UNUserNotificationCenter.current()
+                    .requestAuthorization(options: [.alert, .sound])
+                logger.info("notification authorization granted: \(granted, privacy: .public)")
+            } catch {
+                logger.error("notification authorization request failed: \(String(describing: error), privacy: .public)")
+            }
         }
 
         // AD-4 bootstrap exemption: one unconditional snapshot at launch, regardless
@@ -173,10 +203,94 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // Code-review fix: `refreshTorrents()` is called from 4 independent sites
+    // (bootstrap, addTorrent, mutate, pollLoop), each suspending at the FFI call
+    // below before touching `torrents`/`previousStatusByID` — `@MainActor` alone
+    // doesn't make that atomic across the suspension, so two overlapping calls
+    // could resume out of start-order and roll the completion baseline back to a
+    // stale snapshot. Chaining each call after whichever one is already in flight
+    // (captured synchronously, before any `await`, so a concurrent caller always
+    // sees the latest link) makes the diff-then-assign step run in strict FIFO
+    // order without skipping any call's own fresh FFI read.
+    private var refreshChain: Task<Void, Never>?
+
     private func refreshTorrents() async {
+        let previous = refreshChain
+        let task = Task { [weak self] in
+            await previous?.value
+            await self?.performRefresh()
+        }
+        refreshChain = task
+        await task.value
+    }
+
+    private func performRefresh() async {
         guard let engine else { return }
-        torrents = await Task.detached { engine.getAllTorrents() }.value
+        let newTorrents = await Task.detached { engine.getAllTorrents() }.value
+        detectCompletionsAndNotify(newTorrents: newTorrents)
+        torrents = newTorrents
         startPollingIfNeeded()
+    }
+
+    // AD-4: "the shell detects a torrent's transition into Completed/Seeding by
+    // diffing consecutive snapshots... No separate 'on complete' callback exists."
+    // The engine has no distinct "completed" status (derive_status maps a finished
+    // torrent straight to "seeding" — see Story 4.2 Scope Boundary), so a
+    // transition into "seeding" from anything else is the only completion signal.
+    private func detectCompletionsAndNotify(newTorrents: [TorrentStatus]) {
+        defer {
+            // Replaced wholesale, not merged — naturally prunes ids no longer
+            // present (same pattern as the engine's own per-peer baseline map,
+            // see build_peers_prunes_baseline_for_disconnected_peers).
+            previousStatusByID = Dictionary(uniqueKeysWithValues: newTorrents.map { ($0.id, $0.status) })
+        }
+        // Bootstrap snapshot (AD-4): nothing to diff against yet — don't notify
+        // about torrents already seeding when the app launched (AC3).
+        guard let previousStatusByID else { return }
+
+        // Code-review fix: require a REAL prior observation of this id (not just
+        // "absent" defaulting to "wasn't seeding") before treating "seeding" as a
+        // transition. Without `let previous =`, an id absent from the dictionary —
+        // a torrent removed then re-added with the same infohash, or a freshly
+        // added torrent for content already fully on disk — read as "not seeding"
+        // and fired a notification for something that never transitioned this
+        // session. Requiring an existing, non-seeding prior entry closes both.
+        // Code-review-noted, accepted gap: no batching — if several torrents
+        // transition in the same ~1s tick, this posts one system notification per
+        // torrent back-to-back. Realistic for this single-user hobby app's torrent
+        // counts; a combined "N downloads complete" banner would be over-building
+        // for a case that's rare and merely a minor UX flood, not a correctness bug.
+        for torrent in newTorrents where torrent.status == Self.seedingStatus {
+            if let previous = previousStatusByID[torrent.id], previous != Self.seedingStatus {
+                postCompletionNotification(torrentID: torrent.id, torrentName: torrent.name)
+            }
+        }
+    }
+
+    private func postCompletionNotification(torrentID: String, torrentName: String) {
+        let content = UNMutableNotificationContent()
+        content.title = String(localized: "notification.download_complete.title")
+        // Clamped — some real-world .torrent files declare pathologically long
+        // names, which would otherwise render as a visually broken banner.
+        content.body = String(torrentName.prefix(200))
+        content.sound = .default
+        // Code-review fix: identifier derived from the torrent id (was a random
+        // UUID) — lets a later "seeding" re-transition for the very same torrent
+        // (see Scope Boundary's accepted pause/resume-through-checking case)
+        // replace the prior banner instead of stacking an unrelated duplicate,
+        // and leaves room for a future cancel-on-remove without a signature change.
+        let request = UNNotificationRequest(
+            identifier: "completion.\(torrentID)",
+            content: content,
+            trigger: nil
+        )
+        Task {
+            do {
+                try await UNUserNotificationCenter.current().add(request)
+            } catch {
+                logger.error("failed to post completion notification: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     // AD-4: owned by AppModel (app-lifetime), not a View — survives every window

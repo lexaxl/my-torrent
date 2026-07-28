@@ -564,6 +564,22 @@
           }
         }
       }
+    },
+    "notification.download_complete.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Download Complete"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закачка завершена"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
