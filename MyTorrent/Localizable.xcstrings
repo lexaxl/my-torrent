@@ -352,6 +352,86 @@
           }
         }
       }
+    },
+    "settings.seed_duration.label" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seed after completion"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Раздавать после завершения"
+          }
+        }
+      }
+    },
+    "settings.seed_duration.off" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Don't seed"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не раздавать"
+          }
+        }
+      }
+    },
+    "settings.seed_duration.hours" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "N hours"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "N часов"
+          }
+        }
+      }
+    },
+    "settings.seed_duration.indefinite" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Indefinitely"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Бессрочно"
+          }
+        }
+      }
+    },
+    "settings.seed_duration.hours_hint" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Counts only while the app is open"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Считается только пока приложение открыто"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

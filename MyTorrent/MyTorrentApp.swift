@@ -71,5 +71,14 @@ struct MyTorrentApp: App {
         Window("settings.header.title", id: "settings") {
             SettingsView()
         }
+        // `SettingsView` has no `ScrollView`, so if the window were resizable below
+        // its content's natural size, dragging it smaller would clip the seed-duration
+        // controls with no way to scroll back to them (code-review fix, Story 3.2 —
+        // found when Story 3.2 added a second form section and `SettingsView`'s own
+        // `.frame(minHeight:)` floor no longer had a real safety margin). `.contentSize`
+        // lets the window resize freely but never below what its content needs,
+        // instead of guessing a magic-number minHeight that has to be hand-kept in
+        // sync with the form's content every time a section is added/removed.
+        .windowResizability(.contentSize)
     }
 }

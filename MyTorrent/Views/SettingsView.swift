@@ -1,9 +1,23 @@
 import AppKit
 import SwiftUI
 
+// Story 3.2: tag type for `Picker`'s `selection` — `SeedDurationMode` itself carries
+// an associated `Int` for the "hours" case, which `.tag()`/`Picker` selection can't
+// bind to directly. This is selection-only; the actual value lives in `seedDurationMode`.
+private enum SeedDurationKind: Hashable {
+    case off, hours, indefinite
+}
+
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var saveLocationPath: String = AppSettings.saveLocationPath
+    // `didSet` is the single write-through point to `AppSettings` (code-review fix,
+    // Story 3.2) — every assignment to this property persists automatically, instead
+    // of each of `seedDurationKindBinding`'s/`seedDurationHoursBinding`'s setters
+    // separately remembering to write `AppSettings.seedDurationMode` afterward.
+    @State private var seedDurationMode: SeedDurationMode = AppSettings.seedDurationMode {
+        didSet { AppSettings.seedDurationMode = seedDurationMode }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -11,7 +25,7 @@ struct SettingsView: View {
             Divider()
             form
         }
-        .frame(minWidth: 420, minHeight: 160)
+        .frame(minWidth: 420, minHeight: 200)
     }
 
     private var header: some View {
@@ -30,21 +44,96 @@ struct SettingsView: View {
     }
 
     private var form: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("settings.save_location.label")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            HStack {
-                Text(saveLocationPath)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-                Button("settings.save_location.choose_button") {
-                    chooseSaveLocation()
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("settings.save_location.label")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Text(saveLocationPath)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    Button("settings.save_location.choose_button") {
+                        chooseSaveLocation()
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("settings.seed_duration.label")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                Picker("", selection: seedDurationKindBinding) {
+                    Text("settings.seed_duration.off").tag(SeedDurationKind.off)
+                    Text("settings.seed_duration.hours").tag(SeedDurationKind.hours)
+                    Text("settings.seed_duration.indefinite").tag(SeedDurationKind.indefinite)
+                }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
+
+                if case .hours = seedDurationMode {
+                    HStack {
+                        TextField("", value: seedDurationHoursBinding, format: .number)
+                            .frame(width: 48)
+                            .multilineTextAlignment(.trailing)
+                        Text("settings.seed_duration.hours_hint")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
         .padding(16)
+    }
+
+    // `Picker`'s `selection` needs a value it can compare/tag directly; `SeedDurationMode`
+    // carries an `Int` payload on `.hours`, so this bridges to/from the tag-only
+    // `SeedDurationKind`. Persisting to `AppSettings` happens via `seedDurationMode`'s
+    // own `didSet`, not here — this only ever needs to update the local `@State`.
+    private var seedDurationKindBinding: Binding<SeedDurationKind> {
+        Binding(
+            get: {
+                switch seedDurationMode {
+                case .off: return .off
+                case .hours: return .hours
+                case .indefinite: return .indefinite
+                }
+            },
+            set: { newKind in
+                switch newKind {
+                case .off:
+                    seedDurationMode = .off
+                case .indefinite:
+                    seedDurationMode = .indefinite
+                case .hours:
+                    // Switching to "N hours" without typing a number — restore the
+                    // last-persisted hour count. Reading local `seedDurationMode` here
+                    // would lose the value across an off/indefinite round-trip, since
+                    // @State only remembers hours while .hours is the active case;
+                    // `seedDurationHoursIgnoringMode` survives mode switches because
+                    // it's a separate persisted key (code-review fix, Story 3.2).
+                    seedDurationMode = .hours(AppSettings.seedDurationHoursIgnoringMode)
+                }
+            }
+        )
+    }
+
+    private var seedDurationHoursBinding: Binding<Int> {
+        Binding(
+            get: {
+                if case .hours(let hours) = seedDurationMode { return hours }
+                // Unreachable today (the TextField using this binding only renders
+                // behind the same `.hours` check), but falls back to the persisted
+                // value rather than the bare default, matching seedDurationKindBinding's
+                // restore logic above (code-review fix, Story 3.2).
+                return AppSettings.seedDurationHoursIgnoringMode
+            },
+            set: { newValue in
+                seedDurationMode = .hours(AppSettings.clampSeedDurationHours(newValue))
+            }
+        )
     }
 
     // Native folder picker constrains the result to an existing, browsable
