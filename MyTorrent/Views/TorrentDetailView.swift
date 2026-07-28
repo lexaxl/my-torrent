@@ -82,24 +82,34 @@ struct TorrentDetailView: View {
         switch selectedTab {
         case .files:
             filesList
-        case .trackers, .peers:
-            // Content wired up in Story 2.2 — the tab exists and switches (matches
-            // Story 2.2's own AC, which assumes the switcher is already there), it
-            // just has nothing to show yet. Same "visible, not yet functional" step
-            // this project already took with the search field (Story 1.1 → 1.4).
-            Color.clear
+        case .trackers:
+            trackersList
+        case .peers:
+            peersList
         }
     }
 
-    private var filesList: some View {
+    // Shared by filesList/trackersList — both list a fixed-order collection with
+    // no natural per-row identity beyond position (code-review fix, Story 2.2:
+    // was duplicated ScrollView/VStack/ForEach/Divider scaffolding in each). Peers
+    // aren't built on this helper — its rows are keyed by peer address instead of
+    // position (see peersList).
+    private func rowList<Item, Row: View>(
+        _ items: [Item],
+        @ViewBuilder row: @escaping (Item) -> Row
+    ) -> some View {
         ScrollView {
             VStack(spacing: 0) {
-                ForEach(Array((detail?.files ?? []).enumerated()), id: \.offset) { _, file in
-                    fileRow(file)
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    row(item)
                     Divider()
                 }
             }
         }
+    }
+
+    private var filesList: some View {
+        rowList(detail?.files ?? []) { fileRow($0) }
     }
 
     private func fileRow(_ file: TorrentFile) -> some View {
@@ -112,6 +122,67 @@ struct TorrentDetailView: View {
                 .foregroundStyle(.secondary)
             ProgressView(value: file.progressPercent, total: 100)
                 .frame(width: 90)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    // No status column — librqbit doesn't expose per-tracker announce status
+    // publicly, only the URL list (Story 2.2 Scope Boundary). No empty-state
+    // text either: not specified in the UX spec, unlike the Peers tab below.
+    private var trackersList: some View {
+        rowList(detail?.trackers ?? []) { trackerRow($0) }
+    }
+
+    private func trackerRow(_ tracker: Tracker) -> some View {
+        Text(tracker.url)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // Role (seeder/leecher) and upload speed per peer aren't available from
+    // librqbit either (Story 2.2 Scope Boundary) — address and a download speed
+    // derived engine-side from polling deltas. `Peer.state` is intentionally not
+    // shown: the engine only ever reports live-connected peers here (see Scope
+    // Boundary), so the value is always the literal "live" — a column that can
+    // never vary isn't meaningful to display (code-review fix, Story 2.2). The
+    // field stays on the wire type in case a richer state becomes available later.
+    //
+    // Rows are keyed by address, not position (code-review fix, Story 2.2): the
+    // engine rebuilds this list fresh every ~1s poll with no guaranteed order, so
+    // a position-based id could make rows visually reorder with no real change.
+    private var peersList: some View {
+        let peers = detail?.peers ?? []
+        return Group {
+            if peers.isEmpty {
+                Text("torrent_detail.peers.empty")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(peers, id: \.address) { peer in
+                            peerRow(peer)
+                            Divider()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func peerRow(_ peer: Peer) -> some View {
+        HStack(spacing: 12) {
+            Text(peer.address)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+            Text("\(Formatting.speed(peer.downSpeedBps)) ↓")
+                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

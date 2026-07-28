@@ -804,6 +804,64 @@ public func FfiConverterTypeEngine_lower(_ value: Engine) -> UInt64 {
 
 
 
+public struct Peer: Equatable, Hashable {
+    public var address: String
+    public var state: String
+    public var downSpeedBps: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(address: String, state: String, downSpeedBps: UInt64) {
+        self.address = address
+        self.state = state
+        self.downSpeedBps = downSpeedBps
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension Peer: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePeer: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Peer {
+        return
+            try Peer(
+                address: FfiConverterString.read(from: &buf), 
+                state: FfiConverterString.read(from: &buf), 
+                downSpeedBps: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: Peer, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.address, into: &buf)
+        FfiConverterString.write(value.state, into: &buf)
+        FfiConverterUInt64.write(value.downSpeedBps, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePeer_lift(_ buf: RustBuffer) throws -> Peer {
+    return try FfiConverterTypePeer.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePeer_lower(_ value: Peer) -> RustBuffer {
+    return FfiConverterTypePeer.lower(value)
+}
+
+
 public struct TorrentDetail: Equatable, Hashable {
     public var id: String
     public var name: String
@@ -813,10 +871,12 @@ public struct TorrentDetail: Equatable, Hashable {
     public var upSpeedBps: UInt64
     public var peersConnected: UInt32
     public var files: [TorrentFile]
+    public var trackers: [Tracker]
+    public var peers: [Peer]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, name: String, status: String, progressPercent: Double, downSpeedBps: UInt64, upSpeedBps: UInt64, peersConnected: UInt32, files: [TorrentFile]) {
+    public init(id: String, name: String, status: String, progressPercent: Double, downSpeedBps: UInt64, upSpeedBps: UInt64, peersConnected: UInt32, files: [TorrentFile], trackers: [Tracker], peers: [Peer]) {
         self.id = id
         self.name = name
         self.status = status
@@ -825,6 +885,8 @@ public struct TorrentDetail: Equatable, Hashable {
         self.upSpeedBps = upSpeedBps
         self.peersConnected = peersConnected
         self.files = files
+        self.trackers = trackers
+        self.peers = peers
     }
 
     
@@ -850,7 +912,9 @@ public struct FfiConverterTypeTorrentDetail: FfiConverterRustBuffer {
                 downSpeedBps: FfiConverterUInt64.read(from: &buf), 
                 upSpeedBps: FfiConverterUInt64.read(from: &buf), 
                 peersConnected: FfiConverterUInt32.read(from: &buf), 
-                files: FfiConverterSequenceTypeTorrentFile.read(from: &buf)
+                files: FfiConverterSequenceTypeTorrentFile.read(from: &buf), 
+                trackers: FfiConverterSequenceTypeTracker.read(from: &buf), 
+                peers: FfiConverterSequenceTypePeer.read(from: &buf)
         )
     }
 
@@ -863,6 +927,8 @@ public struct FfiConverterTypeTorrentDetail: FfiConverterRustBuffer {
         FfiConverterUInt64.write(value.upSpeedBps, into: &buf)
         FfiConverterUInt32.write(value.peersConnected, into: &buf)
         FfiConverterSequenceTypeTorrentFile.write(value.files, into: &buf)
+        FfiConverterSequenceTypeTracker.write(value.trackers, into: &buf)
+        FfiConverterSequenceTypePeer.write(value.peers, into: &buf)
     }
 }
 
@@ -1011,6 +1077,56 @@ public func FfiConverterTypeTorrentStatus_lift(_ buf: RustBuffer) throws -> Torr
 #endif
 public func FfiConverterTypeTorrentStatus_lower(_ value: TorrentStatus) -> RustBuffer {
     return FfiConverterTypeTorrentStatus.lower(value)
+}
+
+
+public struct Tracker: Equatable, Hashable {
+    public var url: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(url: String) {
+        self.url = url
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension Tracker: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTracker: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Tracker {
+        return
+            try Tracker(
+                url: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: Tracker, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.url, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTracker_lift(_ buf: RustBuffer) throws -> Tracker {
+    return try FfiConverterTypeTracker.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTracker_lower(_ value: Tracker) -> RustBuffer {
+    return FfiConverterTypeTracker.lower(value)
 }
 
 
@@ -1173,6 +1289,31 @@ public func FfiConverterTypeTorrentSource_lower(_ value: TorrentSource) -> RustB
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypePeer: FfiConverterRustBuffer {
+    typealias SwiftType = [Peer]
+
+    public static func write(_ value: [Peer], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePeer.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Peer] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Peer]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePeer.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeTorrentFile: FfiConverterRustBuffer {
     typealias SwiftType = [TorrentFile]
 
@@ -1215,6 +1356,31 @@ fileprivate struct FfiConverterSequenceTypeTorrentStatus: FfiConverterRustBuffer
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeTorrentStatus.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeTracker: FfiConverterRustBuffer {
+    typealias SwiftType = [Tracker]
+
+    public static func write(_ value: [Tracker], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeTracker.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Tracker] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Tracker]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeTracker.read(from: &buf))
         }
         return seq
     }

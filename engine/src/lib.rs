@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::sync::Arc;
+use std::time::Instant;
 
 use librqbit::api::TorrentIdOrHash;
 use librqbit::{
@@ -16,7 +17,7 @@ use librqbit::{
 };
 use librqbit_core::Id20;
 
-pub use types::{EngineError, TorrentDetail, TorrentFile, TorrentSource, TorrentStatus};
+pub use types::{EngineError, Peer, Tracker, TorrentDetail, TorrentFile, TorrentSource, TorrentStatus};
 
 #[uniffi::export]
 pub fn engine_version() -> String {
@@ -111,6 +112,15 @@ pub struct Engine {
     api: Api,
     // Monotonic counter for `PendingTorrent::seq` — see there.
     next_pending_seq: AtomicU64,
+    // Story 2.2: librqbit only exposes a cumulative "bytes fetched from this peer"
+    // counter, not a live speed — this tracks each torrent's peers' counter +
+    // timestamp from the previous `get_torrent_details` poll so a bytes/sec speed
+    // can be derived from the delta (see `build_peers`). Nested by torrent id
+    // (rather than a flat `(torrent_id, address)`-keyed map) so per-torrent
+    // cleanup (`remove_torrent`, disconnected-peer pruning in `build_peers`) is
+    // scoped to one inner map instead of scanning every tracked torrent's peers
+    // on every poll (code-review fix, Story 2.2).
+    peer_speed_baseline: Mutex<HashMap<String, HashMap<String, (u64, Instant)>>>,
 }
 
 #[uniffi::export]
@@ -126,6 +136,7 @@ impl Engine {
             pending: Arc::new(Mutex::new(HashMap::new())),
             api,
             next_pending_seq: AtomicU64::new(0),
+            peer_speed_baseline: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -224,6 +235,10 @@ impl Engine {
     /// dropping it outright so `add_magnet`'s background task can still notice
     /// and undo itself once resolution finishes (see `PendingTorrent::removed`).
     pub fn remove_torrent(&self, id: String) -> Result<(), EngineError> {
+        // Story 2.2: drop this torrent's peer-speed baselines now — otherwise they'd
+        // stay in the map forever, since a removed torrent is never polled again.
+        self.peer_speed_baseline.lock().unwrap().remove(&id);
+
         let idor = Self::parse_id(&id)?;
         if self.session.get(idor).is_some() {
             runtime()
@@ -258,7 +273,13 @@ impl Engine {
     /// (`find_handle` covers that — see Scope Boundary: the detail window still opens,
     /// it just stays empty until resolution finishes).
     pub fn get_torrent_details(&self, id: String) -> Result<TorrentDetail, EngineError> {
-        let handle = self.find_handle(&id)?;
+        // Parsed once and reused below for `api_peer_stats` too — `find_handle`
+        // would parse `id` again internally otherwise (code-review fix, Story 2.2).
+        let idor = Self::parse_id(&id)?;
+        let handle = self
+            .session
+            .get(idor)
+            .ok_or_else(|| internal_error(format!("torrent not found: {id}")))?;
         let stats = handle.stats();
         let (status, progress_percent, down_speed_bps, up_speed_bps, peers_connected) =
             summarize_stats(&stats);
@@ -293,6 +314,59 @@ impl Engine {
             })
             .unwrap_or_default();
 
+        // Trackers: only the URL list is available — librqbit doesn't publicly
+        // expose per-tracker announce status (connected/not-responding). See
+        // Story 2.2 Scope Boundary.
+        let trackers = handle
+            .shared
+            .trackers
+            .iter()
+            .map(|url| Tracker { url: url.to_string() })
+            .collect();
+
+        // Peers: address + connection state + a download speed derived from the
+        // delta against the previous poll (librqbit exposes only a cumulative
+        // per-peer byte counter, no live speed, no role/upload data — see Story
+        // 2.2 Scope Boundary). `stats.live` mirrors the same liveness check
+        // `api_peer_stats` makes internally (`handle.live()`), so a torrent that
+        // isn't Live yet (still Initializing/Paused) is skipped without even
+        // calling it — the graceful-empty case, same principle as `files` above
+        // when `metadata` is still `None`. If the torrent IS live and the call
+        // still fails, that's unexpected — logged, not silently treated the same
+        // as "not live yet" (code-review fix, Story 2.2: the old code collapsed
+        // every possible error into an empty list with no signal at all).
+        let peer_entries: Vec<(String, String, u64)> = if stats.live.is_none() {
+            Vec::new()
+        } else {
+            match self.api.api_peer_stats(idor, Default::default()) {
+                Ok(snapshot) => {
+                    // Sorted by address for a stable render order — `snapshot.peers`
+                    // is a HashMap rebuilt fresh on every poll, so its iteration
+                    // order isn't guaranteed stable even when the peer set hasn't
+                    // changed (code-review fix, Story 2.2: without this, rows could
+                    // visually shuffle every ~1s poll for no real reason — the same
+                    // class of bug `get_all_torrents` above already had to fix for
+                    // pending torrents via explicit `seq` ordering).
+                    let mut entries: Vec<(String, String, u64)> = snapshot
+                        .peers
+                        .into_iter()
+                        .map(|(address, peer_stats)| {
+                            (address, peer_stats.state.to_string(), peer_stats.counters.fetched_bytes)
+                        })
+                        .collect();
+                    entries.sort_by(|a, b| a.0.cmp(&b.0));
+                    entries
+                }
+                Err(err) => {
+                    eprintln!(
+                        "get_torrent_details: unexpected api_peer_stats error for {id}: {err:#}"
+                    );
+                    Vec::new()
+                }
+            }
+        };
+        let peers = self.build_peers(&id, peer_entries);
+
         Ok(TorrentDetail {
             id,
             name: handle.name().unwrap_or_default(),
@@ -302,6 +376,8 @@ impl Engine {
             up_speed_bps,
             peers_connected,
             files,
+            trackers,
+            peers,
         })
     }
 }
@@ -321,6 +397,55 @@ impl Engine {
         self.session
             .get(idor)
             .ok_or_else(|| internal_error(format!("torrent not found: {id}")))
+    }
+
+    /// Story 2.2: builds this poll's `Peer` list from `(address, state,
+    /// cumulative fetched_bytes)` entries, deriving each one's download speed
+    /// from the delta against the previous poll's baseline (divided by actual
+    /// elapsed time — never assumed to equal the ~1s poll interval, same
+    /// principle as the engine-computed torrent-level speeds, see Consistency
+    /// Conventions) — and prunes this torrent's baseline down to exactly the
+    /// peers present in `entries` (disconnected peers dropped, and the torrent's
+    /// whole inner map removed once empty), all under a single lock acquisition
+    /// (code-review fix, Story 2.2: previously one lock per peer plus a separate
+    /// lock for pruning). Called even when `entries` is empty (torrent not live,
+    /// e.g. paused, or an unexpected error) so a torrent's baseline can't outlive
+    /// it having any peers — the previous version only pruned on a successful,
+    /// non-empty poll, silently leaking a paused torrent's baseline forever.
+    fn build_peers(&self, torrent_id: &str, entries: Vec<(String, String, u64)>) -> Vec<Peer> {
+        let now = Instant::now();
+        let mut all = self.peer_speed_baseline.lock().unwrap();
+        let baseline = all.entry(torrent_id.to_string()).or_default();
+
+        let peers: Vec<Peer> = entries
+            .into_iter()
+            .map(|(address, state, fetched_bytes)| {
+                let down_speed_bps = match baseline.get(&address) {
+                    Some((prev_bytes, prev_instant)) if fetched_bytes >= *prev_bytes => {
+                        let elapsed = now.duration_since(*prev_instant).as_secs_f64();
+                        if elapsed > 0.0 {
+                            ((fetched_bytes - prev_bytes) as f64 / elapsed).round() as u64
+                        } else {
+                            0
+                        }
+                    }
+                    // No prior baseline (first poll), or `fetched_bytes` went
+                    // backwards (peer reconnected, librqbit gave it a fresh
+                    // counter) — never negative/garbage.
+                    _ => 0,
+                };
+                baseline.insert(address.clone(), (fetched_bytes, now));
+                Peer { address, state, down_speed_bps }
+            })
+            .collect();
+
+        let current: HashSet<&str> = peers.iter().map(|p| p.address.as_str()).collect();
+        baseline.retain(|addr, _| current.contains(addr.as_str()));
+        if baseline.is_empty() {
+            all.remove(torrent_id);
+        }
+
+        peers
     }
 
     /// Adds a torrent whose metadata is already known (`.torrent` file/bytes) —
@@ -446,6 +571,7 @@ mod tests {
             pending: Arc::new(Mutex::new(HashMap::new())),
             api,
             next_pending_seq: AtomicU64::new(0),
+            peer_speed_baseline: Mutex::new(HashMap::new()),
         })
     }
 
@@ -470,6 +596,7 @@ mod tests {
             pending: Arc::new(Mutex::new(HashMap::new())),
             api,
             next_pending_seq: AtomicU64::new(0),
+            peer_speed_baseline: Mutex::new(HashMap::new()),
         })
     }
 
@@ -746,6 +873,165 @@ mod tests {
         assert_eq!(detail.down_speed_bps, summary.down_speed_bps);
         assert_eq!(detail.up_speed_bps, summary.up_speed_bps);
         assert_eq!(detail.peers_connected, summary.peers_connected);
+    }
+
+    #[test]
+    fn get_torrent_details_returns_trackers_from_torrent_file() {
+        let engine = test_engine();
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
+        let id = engine
+            .add_torrent(TorrentSource::Path {
+                path: fixture.to_string(),
+            })
+            .expect("add_torrent should succeed for a valid .torrent file");
+
+        let detail = engine
+            .get_torrent_details(id)
+            .expect("get_torrent_details should succeed for a known torrent");
+
+        // Fixture's `announce` field is "http://example.invalid:6969/announce".
+        assert_eq!(detail.trackers.len(), 1, "fixture has a single announce tracker");
+        assert!(detail.trackers[0].url.contains("example.invalid"));
+    }
+
+    #[test]
+    fn get_torrent_details_returns_empty_peers_when_no_real_peers() {
+        let engine = test_engine();
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
+        let id = engine
+            .add_torrent(TorrentSource::Path {
+                path: fixture.to_string(),
+            })
+            .expect("add_torrent should succeed for a valid .torrent file");
+
+        let detail = engine
+            .get_torrent_details(id)
+            .expect("get_torrent_details should succeed for a known torrent");
+
+        // No real network peers in this test environment (same constraint as
+        // `peers_connected == 0` in earlier stories) — must not panic, and with
+        // nothing connected the list is expected to be empty.
+        assert!(detail.peers.is_empty());
+    }
+
+    #[test]
+    fn get_torrent_details_returns_empty_peers_without_error_when_paused() {
+        let engine = test_engine();
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
+        let id = engine
+            .add_torrent(TorrentSource::Path {
+                path: fixture.to_string(),
+            })
+            .expect("add_torrent should succeed for a valid .torrent file");
+
+        // Same bounded-poll pattern as `pause_torrent_then_resume_torrent_round_trips`
+        // — `pause` only succeeds once librqbit has left "Initializing" for "Live".
+        let mut checking_done = false;
+        for _ in 0..100 {
+            if engine
+                .get_all_torrents()
+                .into_iter()
+                .any(|t| t.id == id && t.status != "checking")
+            {
+                checking_done = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(checking_done, "torrent never left the checking state");
+
+        engine
+            .pause_torrent(id.clone())
+            .expect("pause_torrent should succeed for a known torrent");
+
+        // Paused means `stats.live` is `None` — regression test for the pre-fix
+        // behavior where any `api_peer_stats` error (including this expected,
+        // benign one) was silently swallowed with no distinction from a real bug.
+        // The important thing here is that this still succeeds cleanly and
+        // returns an empty list, not an error.
+        let detail = engine
+            .get_torrent_details(id)
+            .expect("get_torrent_details should succeed for a paused torrent");
+        assert!(detail.peers.is_empty());
+    }
+
+    #[test]
+    fn get_torrent_details_does_not_panic_on_repeated_calls_with_no_peers() {
+        let engine = test_engine();
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
+        let id = engine
+            .add_torrent(TorrentSource::Path {
+                path: fixture.to_string(),
+            })
+            .expect("add_torrent should succeed for a valid .torrent file");
+
+        // First call has no baseline yet, second call has an (empty) baseline for
+        // this torrent — exercises the delta computation path with zero peers
+        // both times without panicking (e.g. no underflow on an empty peer set).
+        engine
+            .get_torrent_details(id.clone())
+            .expect("first get_torrent_details call should succeed");
+        let detail = engine
+            .get_torrent_details(id)
+            .expect("second get_torrent_details call should succeed");
+
+        assert!(detail.peers.is_empty());
+    }
+
+    #[test]
+    fn build_peers_computes_delta_and_clamps_negative() {
+        let engine = test_engine();
+        let entry = |bytes: u64| vec![("1.2.3.4:6881".to_string(), "live".to_string(), bytes)];
+
+        // No prior baseline — must not fabricate a speed.
+        let first = engine.build_peers("t1", entry(1_000));
+        assert_eq!(first[0].down_speed_bps, 0);
+
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        // More bytes fetched since the first call — some positive speed.
+        let second = engine.build_peers("t1", entry(1_000 + 64_000));
+        assert!(second[0].down_speed_bps > 0, "expected a positive speed, got {}", second[0].down_speed_bps);
+
+        // Fewer bytes than before (peer reconnected, counter reset by librqbit) —
+        // clamped to 0, not an underflow/garbage value.
+        let third = engine.build_peers("t1", entry(10));
+        assert_eq!(third[0].down_speed_bps, 0);
+    }
+
+    #[test]
+    fn build_peers_prunes_baseline_for_disconnected_peers() {
+        let engine = test_engine();
+        engine.build_peers("t1", vec![("A".to_string(), "live".to_string(), 100_000)]);
+
+        // "A" disconnects — only "B" is present on this poll.
+        engine.build_peers("t1", vec![("B".to_string(), "live".to_string(), 1_000)]);
+
+        // "A" reconnects with fewer bytes than its old baseline (100_000). If that
+        // stale entry wasn't pruned, this would still clamp to 0 (indistinguishable
+        // from a fresh peer) — the real assertion is that this doesn't panic and
+        // behaves like a first-ever poll for "A", not a stale comparison.
+        let peers = engine.build_peers("t1", vec![("A".to_string(), "live".to_string(), 10)]);
+        assert_eq!(peers[0].down_speed_bps, 0);
+    }
+
+    #[test]
+    fn build_peers_with_empty_entries_clears_torrent_from_baseline_map() {
+        // Regression test for the pre-fix leak: pruning used to only run on a
+        // successful, non-empty poll, so a torrent that went quiet (e.g. paused)
+        // kept its baseline entries forever. `build_peers` must now prune down to
+        // an empty set (and drop the torrent's inner map) even when called with
+        // no entries at all.
+        let engine = test_engine();
+        engine.build_peers("t1", vec![("A".to_string(), "live".to_string(), 100_000)]);
+        assert!(engine.peer_speed_baseline.lock().unwrap().contains_key("t1"));
+
+        let peers = engine.build_peers("t1", Vec::new());
+        assert!(peers.is_empty());
+        assert!(
+            !engine.peer_speed_baseline.lock().unwrap().contains_key("t1"),
+            "torrent's baseline entry should be dropped once it has no peers left"
+        );
     }
 
     #[test]

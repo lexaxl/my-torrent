@@ -256,6 +256,22 @@
           }
         }
       }
+    },
+    "torrent_detail.peers.empty" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No peers connected"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нет подключённых пиров"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

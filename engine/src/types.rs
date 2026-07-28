@@ -37,6 +37,18 @@ pub struct TorrentFile {
 }
 
 #[derive(uniffi::Record)]
+pub struct Tracker {
+    pub url: String,
+}
+
+#[derive(uniffi::Record)]
+pub struct Peer {
+    pub address: String,
+    pub state: String,
+    pub down_speed_bps: u64,
+}
+
+#[derive(uniffi::Record)]
 pub struct TorrentDetail {
     pub id: String,
     pub name: String,
@@ -46,4 +58,6 @@ pub struct TorrentDetail {
     pub up_speed_bps: u64,
     pub peers_connected: u32,
     pub files: Vec<TorrentFile>,
+    pub trackers: Vec<Tracker>,
+    pub peers: Vec<Peer>,
 }
