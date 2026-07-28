@@ -1,0 +1,116 @@
+name: Release
+
+"on":
+  push:
+    tags:
+      - "v*"
+  # Code-review fix (Story 4.3): lets the build+package steps be exercised
+  # through the real macos-14 runner via the Actions UI, with the publish
+  # step gated off below — a manual dispatch never creates a public Release.
+  # This is the low-risk way to gain confidence before the *first* real tag
+  # push, which — unlike this — creates a visible, hard-to-reverse artifact.
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Code-review fix: every other tool in this pipeline is pinned
+      # (macos-14 not -latest, dtolnay/rust-toolchain not the runner's
+      # preinstalled Rust) — Xcode wasn't, and GitHub periodically bumps a
+      # runner image's default Xcode within the same "macos-14" label. Pin
+      # explicitly so a version bump is a loud, deliberate change to this
+      # file instead of a silent difference between two releases. Bump this
+      # (and re-run once manually via workflow_dispatch) if GitHub ever
+      # removes this version from the macos-14 image — check what's
+      # available with `ls /Applications | grep Xcode` on the runner.
+      - name: Select Xcode version
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2"
+
+      - name: Install Rust toolchain
+        # Apple Silicon only (NFR2) — same target pinned independently in
+        # project.yml's ARCHS and scripts/build-engine.sh's RUST_TARGET; no
+        # single shared source of truth across YAML/shell/project.yml, but
+        # unifying them would need a bigger shared-config mechanism than this
+        # $0-budget, single-target hobby project's scope justifies (grep for
+        # "aarch64-apple-darwin" to find all three if this ever needs to change).
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      # Code-review fix: keyed on Cargo.lock so an unchanged dependency graph
+      # (librqbit, tokio "full", uniffi — 100+ crates) doesn't recompile from
+      # scratch on every tagged release.
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            engine/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('engine/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install XcodeGen
+        # Code-review fix: HOMEBREW_NO_AUTO_UPDATE avoids Homebrew's implicit
+        # tap-index sync before installing — a known source of occasional
+        # slow/flaky installs on hosted macOS runners, unrelated to this
+        # project's own code. `xcodegen --version` is echoed so the exact
+        # version used for a given release is at least visible in the run's
+        # log, even without a hard version pin (XcodeGen doesn't publish
+        # versioned Homebrew formulae to pin against).
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: |
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # Code-review fix: derives the .app's own version metadata from the
+      # triggering tag instead of leaving Info.plist's hardcoded "1.0"/"1" on
+      # every release forever. `workflow_dispatch` has no tag, so it falls
+      # back to a clearly-non-release placeholder rather than a misleading
+      # real-looking version number.
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="0.0.0-dev"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build (Release)
+        run: |
+          xcodebuild \
+            -project MyTorrent.xcodeproj \
+            -scheme MyTorrent \
+            -configuration Release \
+            -derivedDataPath build \
+            MARKETING_VERSION="${{ steps.version.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            build
+
+      - name: Package .dmg
+        run: scripts/package-dmg.sh build/Build/Products/Release/MyTorrent.app
+
+      # Code-review fix: only publish a real GitHub Release on an actual tag
+      # push, never on a manual workflow_dispatch run (see the trigger's
+      # comment above) — dispatch runs exist purely to test the steps above.
+      - name: Publish GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: MyTorrent.dmg

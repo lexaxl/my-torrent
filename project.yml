@@ -9,6 +9,13 @@ settings:
     ARCHS: arm64
     ONLY_ACTIVE_ARCH: YES
     SWIFT_VERSION: "5"
+    # Defaults for local/Debug builds — Info.plist's CFBundleShortVersionString/
+    # CFBundleVersion reference these via $(MARKETING_VERSION)/$(CURRENT_PROJECT_VERSION)
+    # (code-review fix, Story 4.3). release.yml overrides both on the xcodebuild
+    # command line for tagged Release builds so the shipped .app's own version
+    # metadata reflects the triggering git tag instead of staying static forever.
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
 
 targets:
   MyTorrent:

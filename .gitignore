@@ -19,5 +19,11 @@ xcuserdata/
 # by the build phase on every build (same paths — Xcode doesn't need
 # `xcodegen generate` re-run for content changes, only for new/renamed files).
 
+# Release build artifacts (local verification of .github/workflows/release.yml,
+# Story 4.3 — same outputs the CI job produces, never committed)
+/build/
+/dmg-staging/
+*.dmg
+
 # macOS
 .DS_Store
