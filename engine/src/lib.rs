@@ -13,8 +13,10 @@ use std::time::Instant;
 
 use librqbit::api::TorrentIdOrHash;
 use librqbit::{
-    AddTorrent, Api, ManagedTorrent, Magnet, Session, SessionOptions, TorrentStats, TorrentStatsState,
+    AddTorrent, AddTorrentOptions, Api, ByteBufOwned, ByteBufT, ManagedTorrent, Magnet, Session,
+    SessionOptions, TorrentStats, TorrentStatsState,
 };
+use librqbit_core::torrent_metainfo::torrent_from_bytes;
 use librqbit_core::Id20;
 
 pub use types::{EngineError, Peer, Tracker, TorrentDetail, TorrentFile, TorrentSource, TorrentStatus};
@@ -36,6 +38,78 @@ fn internal_error(message: impl std::fmt::Display) -> EngineError {
     EngineError::Internal {
         message: message.to_string(),
     }
+}
+
+/// Computes the actual on-disk destination for a newly added `.torrent` file/bytes
+/// torrent (code-review fix, Story 3.1).
+///
+/// `add_torrent_blocking` always sets `AddTorrentOptions.output_folder` (per AD-5 —
+/// the save-location setting flows in per call, not fixed at session construction).
+/// But librqbit only auto-derives a per-torrent subfolder for multi-file torrents
+/// when `output_folder` is `None` — verified directly against librqbit 8.1.1's
+/// `Session::add_torrent_internal` (`session.rs`): `(Some(o), None) => PathBuf::from(o)`
+/// skips subfolder derivation entirely, while `(None, None)` joins the session's
+/// default folder with a name from `get_default_subfolder_for_torrent` (private, so
+/// it can't be called directly). Left as `Some(download_dir)` unconditionally, every
+/// multi-file torrent (season packs, multi-file releases) would dump its files flat
+/// into `download_dir` instead of getting its own named subfolder — a real, silent
+/// regression this reproduces the same rule for: single-file torrents resolve to
+/// `download_dir` itself, multi-file torrents resolve to `download_dir/<subfolder>`.
+///
+/// The subfolder name itself mirrors librqbit's own two-tier rule (verified against
+/// `get_default_subfolder_for_torrent`, same file): prefer `info.name` when present
+/// and a valid single path component; otherwise fall back to the longest file's stem
+/// (librqbit's own fallback for torrents with no/empty `name` — legal per BEP3, if
+/// rare). One deliberate divergence: librqbit hard-fails the whole add when `info.name`
+/// is present but invalid (path traversal, separators) — this falls back to the
+/// longest-file-stem tier instead of failing, since folder *placement* shouldn't be
+/// able to block an otherwise-valid add. Falls back to `download_dir` unchanged (no
+/// subfolder) only if the torrent can't be parsed, has no files, or truly has neither
+/// a usable name nor any file to name it after — the actual `add_torrent` call below
+/// will surface any real parse error on its own; this is purely about folder
+/// placement, not validation. (Magnet links can't get this treatment — see
+/// `add_magnet`'s doc comment for why.)
+fn resolve_output_folder(download_dir: &str, torrent_bytes: &[u8]) -> String {
+    let Ok(meta) = torrent_from_bytes::<ByteBufOwned>(torrent_bytes) else {
+        return download_dir.to_string();
+    };
+    let Ok(files) = meta.info.iter_file_details() else {
+        return download_dir.to_string();
+    };
+    let files: Vec<(std::path::PathBuf, u64)> = files
+        .filter_map(|details| details.filename.to_pathbuf().ok().map(|path| (path, details.len)))
+        .collect();
+    if files.len() < 2 {
+        return download_dir.to_string();
+    }
+
+    let name_subfolder = meta.info.name.as_ref().and_then(|name| {
+        let name = String::from_utf8_lossy(name.as_slice()).into_owned();
+        is_valid_subfolder_name(&name).then_some(name)
+    });
+    let subfolder = name_subfolder.or_else(|| {
+        files
+            .iter()
+            .max_by_key(|(_, len)| *len)
+            .and_then(|(path, _)| path.file_stem())
+            .map(|stem| stem.to_string_lossy().into_owned())
+    });
+
+    match subfolder {
+        Some(name) => std::path::Path::new(download_dir)
+            .join(name)
+            .to_string_lossy()
+            .into_owned(),
+        None => download_dir.to_string(),
+    }
+}
+
+/// A single path component is safe to join onto `download_dir` — rejects path
+/// traversal and any embedded separator (mirrors librqbit's own `check_valid` in
+/// `get_default_subfolder_for_torrent`, which checks each `Path` component is
+/// `Component::Normal`).
+fn is_valid_subfolder_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains('/') && !name.contains('\\')
 }
 
 /// librqbit reports speed as `Speed { mbps: f64 }` — mebibytes/sec, not bytes/sec.
@@ -140,16 +214,28 @@ impl Engine {
         }))
     }
 
-    pub fn add_torrent(&self, source: TorrentSource) -> Result<String, EngineError> {
+    pub fn add_torrent(&self, source: TorrentSource, download_dir: String) -> Result<String, EngineError> {
         match source {
+            // Read as bytes (not `AddTorrent::from_local_filename`, which does the same
+            // read internally) so `resolve_output_folder` can inspect the torrent's file
+            // count/name before the add call — see its doc comment (code-review fix,
+            // Story 3.1).
             TorrentSource::Path { path } => {
-                let add = AddTorrent::from_local_filename(&path).map_err(internal_error)?;
-                self.add_torrent_blocking(add)
+                // `AddTorrent::from_local_filename` named the failing path in its error
+                // (`"error reading local file {filename:?}"`); a bare `io::Error` from
+                // `std::fs::read` doesn't, so it's added back here explicitly (code-review
+                // fix, Story 3.1 — this is the only place such a failure is ever recorded,
+                // see `AppModel.addTorrent`'s log-and-swallow catch branch).
+                let bytes = std::fs::read(&path)
+                    .map_err(|err| internal_error(format!("error reading local file {path:?}: {err}")))?;
+                let output_folder = resolve_output_folder(&download_dir, &bytes);
+                self.add_torrent_blocking(AddTorrent::from_bytes(bytes), output_folder)
             }
             TorrentSource::Bytes { bytes } => {
-                self.add_torrent_blocking(AddTorrent::from_bytes(bytes))
+                let output_folder = resolve_output_folder(&download_dir, &bytes);
+                self.add_torrent_blocking(AddTorrent::from_bytes(bytes), output_folder)
             }
-            TorrentSource::Magnet { uri } => self.add_magnet(uri),
+            TorrentSource::Magnet { uri } => self.add_magnet(uri, download_dir),
         }
     }
 
@@ -450,9 +536,18 @@ impl Engine {
 
     /// Adds a torrent whose metadata is already known (`.torrent` file/bytes) —
     /// librqbit registers these synchronously without waiting on any peer.
-    fn add_torrent_blocking(&self, add: AddTorrent<'static>) -> Result<String, EngineError> {
+    fn add_torrent_blocking(&self, add: AddTorrent<'static>, output_folder: String) -> Result<String, EngineError> {
+        // Story 3.1 / AD-5: the save-location setting flows in as a per-call
+        // parameter, not a fixed value baked into the session at construction —
+        // each add uses whatever the Settings window currently holds. `output_folder`
+        // here is already `resolve_output_folder`'s result, not the raw setting value
+        // (code-review fix, Story 3.1 — see that function's doc comment).
+        let opts = AddTorrentOptions {
+            output_folder: Some(output_folder),
+            ..Default::default()
+        };
         let response = runtime()
-            .block_on(self.session.add_torrent(add, None))
+            .block_on(self.session.add_torrent(add, Some(opts)))
             .map_err(internal_error)?;
 
         let handle = response
@@ -474,7 +569,18 @@ impl Engine {
     /// is cleared — the torrent is visible via `session.with_torrents` from then on.
     /// On failure the entry is kept but marked `failed`, so the row turns into an
     /// "error" status instead of just disappearing with no explanation.
-    fn add_magnet(&self, uri: String) -> Result<String, EngineError> {
+    ///
+    /// **Known limitation (code-review finding, Story 3.1):** unlike the file/bytes
+    /// path (`add_torrent`, via `resolve_output_folder`), magnet links can't get the
+    /// multi-file auto-subfolder treatment — file count/name aren't known until the
+    /// background task's `session.add_torrent` call resolves metadata over the network,
+    /// but `AddTorrentOptions.output_folder` has to be decided and handed to that same
+    /// call up front. Reproducing librqbit's own subfolder logic here would require
+    /// duplicating its magnet resolution (DHT/tracker/peer handshake) purely to peek at
+    /// metadata first, which is out of scope. A multi-file torrent added via magnet
+    /// link will therefore still land flat in `download_dir`, unlike one added via
+    /// `.torrent` file.
+    fn add_magnet(&self, uri: String, download_dir: String) -> Result<String, EngineError> {
         let magnet = Magnet::parse(&uri).map_err(internal_error)?;
         let id20 = magnet
             .as_id20()
@@ -496,8 +602,16 @@ impl Engine {
         let session = self.session.clone();
         let pending = self.pending.clone();
         let pending_id = id.clone();
+        // Story 3.1: same per-call save-location override as the synchronous
+        // path (`add_torrent_blocking`) — built before `spawn` so the background
+        // resolution task uses whatever the setting was at the moment the user
+        // added this magnet, not whatever it might be later when it resolves.
+        let opts = AddTorrentOptions {
+            output_folder: Some(download_dir),
+            ..Default::default()
+        };
         runtime().spawn(async move {
-            match session.add_torrent(AddTorrent::from_url(uri), None).await {
+            match session.add_torrent(AddTorrent::from_url(uri), Some(opts)).await {
                 Ok(_) => {
                     let was_removed = pending
                         .lock()
@@ -544,6 +658,19 @@ mod tests {
     #[test]
     fn engine_version_returns_non_empty_string() {
         assert!(!engine_version().is_empty());
+    }
+
+    // Story 3.1: `add_torrent` now requires a download_dir per call, and librqbit
+    // actually creates/checks the destination file at add-time (`allow_overwrite
+    // = false` by default) — unlike the shared `std::env::temp_dir()`, which
+    // caused every test adding the same single-file fixture to collide on the
+    // same "test.txt" path when tests run concurrently, each call here gets its
+    // own fresh, real directory. `.keep()` intentionally skips cleanup (same
+    // "don't bother cleaning up test dirs" convention as `test_engine`'s own
+    // per-test `TempDir`, whose directory is already gone by the time any test
+    // body runs, without ever mattering).
+    fn test_download_dir() -> String {
+        tempfile::tempdir().unwrap().keep().to_string_lossy().into_owned()
     }
 
     fn test_engine() -> Arc<Engine> {
@@ -606,9 +733,12 @@ mod tests {
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
 
         let id = engine
-            .add_torrent(TorrentSource::Path {
-                path: fixture.to_string(),
-            })
+            .add_torrent(
+                TorrentSource::Path {
+                    path: fixture.to_string(),
+                },
+                test_download_dir(),
+            )
             .expect("add_torrent should succeed for a valid .torrent file");
 
         assert!(!id.is_empty());
@@ -627,9 +757,12 @@ mod tests {
         let magnet = "magnet:?xt=urn:btih:0000000000000000000000000000000000000000";
 
         let id = engine
-            .add_torrent(TorrentSource::Magnet {
-                uri: magnet.to_string(),
-            })
+            .add_torrent(
+                TorrentSource::Magnet {
+                    uri: magnet.to_string(),
+                },
+                test_download_dir(),
+            )
             .expect("add_torrent should succeed for a well-formed magnet link");
 
         assert_eq!(id, "0000000000000000000000000000000000000000");
@@ -646,9 +779,12 @@ mod tests {
         let magnet = "magnet:?xt=urn:btih:0000000000000000000000000000000000000000";
 
         let id = engine
-            .add_torrent(TorrentSource::Magnet {
-                uri: magnet.to_string(),
-            })
+            .add_torrent(
+                TorrentSource::Magnet {
+                    uri: magnet.to_string(),
+                },
+                test_download_dir(),
+            )
             .expect("add_torrent should succeed for a well-formed magnet link");
 
         // The background task fails almost immediately (no DHT/trackers/peers), but
@@ -674,9 +810,12 @@ mod tests {
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
 
         engine
-            .add_torrent(TorrentSource::Path {
-                path: fixture.to_string(),
-            })
+            .add_torrent(
+                TorrentSource::Path {
+                    path: fixture.to_string(),
+                },
+                test_download_dir(),
+            )
             .expect("add_torrent should succeed for a valid .torrent file");
 
         let torrents = engine.get_all_torrents();
@@ -703,9 +842,12 @@ mod tests {
         let engine = test_engine();
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
         let id = engine
-            .add_torrent(TorrentSource::Path {
-                path: fixture.to_string(),
-            })
+            .add_torrent(
+                TorrentSource::Path {
+                    path: fixture.to_string(),
+                },
+                test_download_dir(),
+            )
             .expect("add_torrent should succeed for a valid .torrent file");
 
         // `pause` only succeeds once librqbit's internal state has left
@@ -748,9 +890,12 @@ mod tests {
         let engine = test_engine();
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
         let id = engine
-            .add_torrent(TorrentSource::Path {
-                path: fixture.to_string(),
-            })
+            .add_torrent(
+                TorrentSource::Path {
+                    path: fixture.to_string(),
+                },
+                test_download_dir(),
+            )
             .expect("add_torrent should succeed for a valid .torrent file");
 
         engine
@@ -765,9 +910,12 @@ mod tests {
         let engine = test_engine_no_peer_sources();
         let magnet = "magnet:?xt=urn:btih:0000000000000000000000000000000000000000";
         let id = engine
-            .add_torrent(TorrentSource::Magnet {
-                uri: magnet.to_string(),
-            })
+            .add_torrent(
+                TorrentSource::Magnet {
+                    uri: magnet.to_string(),
+                },
+                test_download_dir(),
+            )
             .expect("add_torrent should succeed for a well-formed magnet link");
 
         // Whether background resolution has already failed (marking the entry
@@ -797,9 +945,12 @@ mod tests {
 
         for id in &ids {
             engine
-                .add_torrent(TorrentSource::Magnet {
-                    uri: format!("magnet:?xt=urn:btih:{id}"),
-                })
+                .add_torrent(
+                    TorrentSource::Magnet {
+                        uri: format!("magnet:?xt=urn:btih:{id}"),
+                    },
+                    test_download_dir(),
+                )
                 .expect("add_torrent should succeed for a well-formed magnet link");
         }
 
@@ -822,9 +973,12 @@ mod tests {
         let engine = test_engine();
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
         let id = engine
-            .add_torrent(TorrentSource::Path {
-                path: fixture.to_string(),
-            })
+            .add_torrent(
+                TorrentSource::Path {
+                    path: fixture.to_string(),
+                },
+                test_download_dir(),
+            )
             .expect("add_torrent should succeed for a valid .torrent file");
 
         let detail = engine
@@ -852,9 +1006,12 @@ mod tests {
         let engine = test_engine();
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
         let id = engine
-            .add_torrent(TorrentSource::Path {
-                path: fixture.to_string(),
-            })
+            .add_torrent(
+                TorrentSource::Path {
+                    path: fixture.to_string(),
+                },
+                test_download_dir(),
+            )
             .expect("add_torrent should succeed for a valid .torrent file");
 
         let summary = engine
@@ -876,13 +1033,147 @@ mod tests {
     }
 
     #[test]
+    fn add_torrent_uses_provided_download_dir_as_output_folder() {
+        let engine = test_engine();
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
+        // Bound to a variable (not `_`) so the TempDir isn't dropped — and its
+        // directory deleted — before `add_torrent` runs.
+        let custom_dir = tempfile::tempdir().unwrap();
+        let custom_dir_path = custom_dir.path().to_string_lossy().into_owned();
+
+        let id = engine
+            .add_torrent(
+                TorrentSource::Path {
+                    path: fixture.to_string(),
+                },
+                custom_dir_path.clone(),
+            )
+            .expect("add_torrent should succeed for a valid .torrent file");
+
+        let output_folder = engine
+            .reveal_path(id)
+            .expect("reveal_path should succeed for a known torrent");
+        assert_eq!(output_folder, custom_dir_path);
+    }
+
+    // Code-review regression test, Story 3.1: a multi-file torrent must still land
+    // in its own named subfolder under the configured save dir, matching what
+    // passing `output_folder: None` would have produced via librqbit's own
+    // `get_default_subfolder_for_torrent` — see `resolve_output_folder`'s doc
+    // comment for why that stopped happening once `output_folder` is always `Some`.
+    #[test]
+    fn add_torrent_puts_multi_file_torrent_in_a_subfolder_named_after_the_torrent() {
+        let engine = test_engine();
+
+        // Build a real 2-file torrent on disk — `create_torrent` derives `info.name`
+        // from the source directory's basename and switches to multi-file mode
+        // whenever the source path is a directory (even with just 2 tiny files).
+        let source_dir = tempfile::tempdir().unwrap();
+        std::fs::write(source_dir.path().join("a.txt"), b"a").unwrap();
+        std::fs::write(source_dir.path().join("b.txt"), b"b").unwrap();
+        let created = runtime()
+            .block_on(librqbit::create_torrent(source_dir.path(), Default::default()))
+            .expect("create_torrent should succeed for a small 2-file directory");
+        let torrent_name = String::from_utf8_lossy(
+            created
+                .as_info()
+                .info
+                .name
+                .as_ref()
+                .expect("created torrent should have a name")
+                .as_slice(),
+        )
+        .into_owned();
+        let torrent_bytes = created
+            .as_bytes()
+            .expect("created torrent should serialize to bytes")
+            .to_vec();
+
+        let base_dir = tempfile::tempdir().unwrap();
+        let base_dir_path = base_dir.path().to_string_lossy().into_owned();
+
+        let id = engine
+            .add_torrent(TorrentSource::Bytes { bytes: torrent_bytes }, base_dir_path.clone())
+            .expect("add_torrent should succeed for a valid multi-file torrent");
+
+        let output_folder = engine
+            .reveal_path(id)
+            .expect("reveal_path should succeed for a known torrent");
+        let expected = std::path::Path::new(&base_dir_path).join(&torrent_name);
+        assert_eq!(output_folder, expected.to_string_lossy());
+    }
+
+    // Code-review regression test, Story 3.1: when a multi-file torrent has no
+    // `info.name` (legal per BEP3, if rare — `create_torrent` used by the sibling
+    // test above can't produce one, since it always derives a name), the subfolder
+    // should fall back to the longest file's stem, matching librqbit's own
+    // `get_default_subfolder_for_torrent` fallback rather than skipping the
+    // subfolder entirely. Calls `resolve_output_folder` directly (private fn,
+    // reachable via `use super::*`) rather than round-tripping through a real
+    // `Engine`/session — hand-built bencode bytes below aren't a *real*,
+    // downloadable torrent (empty `pieces` hash), only a structurally valid one,
+    // which is all `resolve_output_folder` needs.
+    #[test]
+    fn resolve_output_folder_falls_back_to_longest_filename_when_torrent_has_no_name() {
+        fn bstr(s: &[u8]) -> Vec<u8> {
+            let mut v = s.len().to_string().into_bytes();
+            v.push(b':');
+            v.extend_from_slice(s);
+            v
+        }
+        fn bint(n: u64) -> Vec<u8> {
+            format!("i{n}e").into_bytes()
+        }
+        fn bdict(pairs: Vec<(&[u8], Vec<u8>)>) -> Vec<u8> {
+            let mut v = vec![b'd'];
+            for (key, value) in pairs {
+                v.extend(bstr(key));
+                v.extend(value);
+            }
+            v.push(b'e');
+            v
+        }
+        fn blist(items: Vec<Vec<u8>>) -> Vec<u8> {
+            let mut v = vec![b'l'];
+            for item in items {
+                v.extend(item);
+            }
+            v.push(b'e');
+            v
+        }
+
+        // "longest-file.bin" is deliberately longer than "short.bin" so the
+        // fallback's `max_by_key(len)` pick is unambiguous.
+        let long_file = bdict(vec![
+            (b"length", bint(500)),
+            (b"path", blist(vec![bstr(b"longest-file.bin")])),
+        ]);
+        let short_file = bdict(vec![
+            (b"length", bint(1)),
+            (b"path", blist(vec![bstr(b"short.bin")])),
+        ]);
+        let info = bdict(vec![
+            (b"files", blist(vec![long_file, short_file])),
+            (b"piece length", bint(16384)),
+            (b"pieces", bstr(b"")),
+        ]);
+        let torrent_bytes = bdict(vec![(b"info", info)]);
+
+        let output_folder = resolve_output_folder("/base", &torrent_bytes);
+        assert_eq!(output_folder, "/base/longest-file");
+    }
+
+    #[test]
     fn get_torrent_details_returns_trackers_from_torrent_file() {
         let engine = test_engine();
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
         let id = engine
-            .add_torrent(TorrentSource::Path {
-                path: fixture.to_string(),
-            })
+            .add_torrent(
+                TorrentSource::Path {
+                    path: fixture.to_string(),
+                },
+                test_download_dir(),
+            )
             .expect("add_torrent should succeed for a valid .torrent file");
 
         let detail = engine
@@ -899,9 +1190,12 @@ mod tests {
         let engine = test_engine();
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
         let id = engine
-            .add_torrent(TorrentSource::Path {
-                path: fixture.to_string(),
-            })
+            .add_torrent(
+                TorrentSource::Path {
+                    path: fixture.to_string(),
+                },
+                test_download_dir(),
+            )
             .expect("add_torrent should succeed for a valid .torrent file");
 
         let detail = engine
@@ -919,9 +1213,12 @@ mod tests {
         let engine = test_engine();
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
         let id = engine
-            .add_torrent(TorrentSource::Path {
-                path: fixture.to_string(),
-            })
+            .add_torrent(
+                TorrentSource::Path {
+                    path: fixture.to_string(),
+                },
+                test_download_dir(),
+            )
             .expect("add_torrent should succeed for a valid .torrent file");
 
         // Same bounded-poll pattern as `pause_torrent_then_resume_torrent_round_trips`
@@ -960,9 +1257,12 @@ mod tests {
         let engine = test_engine();
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
         let id = engine
-            .add_torrent(TorrentSource::Path {
-                path: fixture.to_string(),
-            })
+            .add_torrent(
+                TorrentSource::Path {
+                    path: fixture.to_string(),
+                },
+                test_download_dir(),
+            )
             .expect("add_torrent should succeed for a valid .torrent file");
 
         // First call has no baseline yet, second call has an (empty) baseline for

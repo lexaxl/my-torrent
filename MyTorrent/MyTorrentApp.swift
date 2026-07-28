@@ -65,5 +65,11 @@ struct MyTorrentApp: App {
             TorrentDetailView(torrentId: torrentId ?? "")
                 .environmentObject(appModel)
         }
+        // Singleton scene, like "main" — settings aren't tied to a per-entity id,
+        // so this is `Window`, not `WindowGroup(for:)` (Story 2.1's pattern for
+        // per-torrent windows doesn't apply here).
+        Window("settings.header.title", id: "settings") {
+            SettingsView()
+        }
     }
 }

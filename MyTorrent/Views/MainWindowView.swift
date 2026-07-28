@@ -88,12 +88,11 @@ struct MainWindowView: View {
             Spacer()
 
             Button {
-                // Открывает окно настроек (3.1) — реализуется в Story 3.1/3.2.
+                openWindow(id: "settings")
             } label: {
                 Image(systemName: "gearshape")
             }
             .buttonStyle(.borderless)
-            .disabled(true)
         }
         .padding(12)
     }

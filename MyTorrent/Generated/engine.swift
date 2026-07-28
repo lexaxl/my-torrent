@@ -579,7 +579,7 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 
 public protocol EngineProtocol: AnyObject, Sendable {
     
-    func addTorrent(source: TorrentSource) throws  -> String
+    func addTorrent(source: TorrentSource, downloadDir: String) throws  -> String
     
     func getAllTorrents()  -> [TorrentStatus]
     
@@ -673,12 +673,13 @@ public convenience init(downloadDir: String)throws  {
     
 
     
-open func addTorrent(source: TorrentSource)throws  -> String  {
+open func addTorrent(source: TorrentSource, downloadDir: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEngineError_lift) {
         uniffiCallStatus in
     uniffi_engine_fn_method_engine_add_torrent(
             self.uniffiCloneHandle(),
-        FfiConverterTypeTorrentSource_lower(source),uniffiCallStatus
+        FfiConverterTypeTorrentSource_lower(source),
+        FfiConverterString.lower(downloadDir),uniffiCallStatus
     )
 })
 }
@@ -1411,7 +1412,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_engine_checksum_func_engine_version() != 42686) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_engine_checksum_method_engine_add_torrent() != 18032) {
+    if (uniffi_engine_checksum_method_engine_add_torrent() != 64612) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_engine_checksum_method_engine_get_all_torrents() != 57456) {

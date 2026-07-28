@@ -260,7 +260,7 @@ uint64_t uniffi_engine_fn_constructor_engine_new(RustBuffer download_dir, RustCa
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_FN_METHOD_ENGINE_ADD_TORRENT
 #define UNIFFI_FFIDEF_UNIFFI_ENGINE_FN_METHOD_ENGINE_ADD_TORRENT
-RustBuffer uniffi_engine_fn_method_engine_add_torrent(uint64_t ptr, RustBuffer source, RustCallStatus *_Nonnull out_status
+RustBuffer uniffi_engine_fn_method_engine_add_torrent(uint64_t ptr, RustBuffer source, RustBuffer download_dir, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_FN_METHOD_ENGINE_GET_ALL_TORRENTS

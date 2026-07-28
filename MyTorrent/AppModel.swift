@@ -27,14 +27,7 @@ final class AppModel: ObservableObject {
     private static let activeStatuses: Set<String> = ["checking", "downloading", "seeding", "resolving"]
 
     init() {
-        // Hardcoded until Settings exists (Story 3.1) — AD-5 is about who owns the
-        // value and how it's passed, not about it being configurable yet.
-        let downloadDir = FileManager.default
-            .urls(for: .downloadsDirectory, in: .userDomainMask)
-            .first?.path
-            ?? NSString(string: "~/Downloads").expandingTildeInPath
-
-        Task { await setUpEngine(downloadDir: downloadDir) }
+        Task { await setUpEngine(downloadDir: AppSettings.saveLocationPath) }
     }
 
     private func setUpEngine(downloadDir: String) async {
@@ -56,10 +49,14 @@ final class AppModel: ObservableObject {
             logger.error("addTorrent called before engine finished initializing")
             return
         }
+        // Read on the MainActor before detaching, same as `source`/`engine` above —
+        // whatever the Settings window currently holds at the moment of this call
+        // (AD-5: settings flow one-directionally into Rust as call parameters).
+        let downloadDir = AppSettings.saveLocationPath
 
         let result: Result<String, EngineError> = await Task.detached {
             do {
-                return .success(try engine.addTorrent(source: source))
+                return .success(try engine.addTorrent(source: source, downloadDir: downloadDir))
             } catch let error as EngineError {
                 return .failure(error)
             } catch {
