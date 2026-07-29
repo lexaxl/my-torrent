@@ -29,6 +29,10 @@ FR6: Menu-bar icon is always present; clicking it opens a popover with aggregate
 FR7: A system notification fires when a download completes.
 FR8: Main window toolbar has a search/filter field that filters the list by torrent name in real time.
 FR9: Main window and menu-bar popover show an appropriate empty state when there are no active downloads; Torrent Detail's Peers tab shows an empty state when no peers are connected.
+FR10: Each downloads-list row shows a subtitle line with downloaded/total size, ETA (while downloading), and a text status (Downloading/Seeding/Paused/Checking/Error).
+FR11: The row's progress bar color reflects torrent state — standard accent while downloading/checking, `color-success` once complete (seeding), gray while paused, red on error.
+FR12: Hovering the menu-bar icon (no click) shows a tooltip with aggregate download/upload speed across all active torrents.
+FR13: The app has a custom pump-icon visual identity — Dock/Finder app icon and a two-state (idle/active) menu-bar icon, replacing the default Xcode icon and generic SF Symbols.
 
 ### NonFunctional Requirements
 
@@ -79,6 +83,10 @@ FR5: Epic 3 - settings window (save location, seed duration)
 FR6: Epic 4 - menu-bar popover
 FR7: Epic 4 - completion notification
 FR9 (popover empty state): Epic 4
+FR10: Epic 5 - row subtitle (size/ETA/status)
+FR11: Epic 5 - progress bar state color
+FR12: Epic 5 - menu-bar hover tooltip
+FR13: Epic 5 - custom pump icon (app + menu-bar)
 NFR1-NFR6: cross-cutting, established in Epic 1 (engine/shell foundation per Architecture Spine AD-1 through AD-10), relied upon by all later epics
 
 ## Epic List
@@ -98,6 +106,10 @@ NFR1-NFR6: cross-cutting, established in Epic 1 (engine/shell foundation per Arc
 ### Epic 4: Меню-бар, уведомления и релиз
 Пользователь получает беглый доступ к статусу закачек через иконку в меню-баре (без открытия главного окна) и системное уведомление по завершении. Здесь же — сборка и публикация неподписанной `.dmg` через GitHub Actions CI (не отдельная пользовательская ценность, поэтому не отдельный эпик).
 **FRs covered:** FR6, FR7, FR9 (popover, пустое состояние)
+
+### Epic 5: Больше данных в списке и визуальная идентичность
+Пользователь видит размер, ETA и статус закачки прямо в строке списка, без открытия окна деталей; прогресс-бар меняет цвет в зависимости от состояния закачки; наведение на иконку меню-бара показывает суммарную скорость без клика; у приложения появляется собственная иконка-насос (Dock/Finder + меню-бар, два состояния) вместо стандартной Xcode-иконки и системных SF Symbol.
+**FRs covered:** FR10, FR11, FR12, FR13
 
 ---
 
@@ -280,3 +292,80 @@ So that shipping a new version doesn't require manual steps.
 **When** срабатывает GitHub Actions
 **Then** собирается `.app`, упаковывается в неподписанный `.dmg` и публикуется в GitHub Releases
 **And** README содержит инструкцию по обходу Gatekeeper для неподписанной сборки
+
+## Epic 5: Больше данных в списке и визуальная идентичность
+
+Пользователь видит размер, ETA и статус закачки прямо в строке списка, без открытия окна деталей; прогресс-бар меняет цвет в зависимости от состояния закачки; наведение на иконку меню-бара показывает суммарную скорость без клика; у приложения появляется собственная иконка-насос вместо стандартной Xcode-иконки и системных SF Symbol.
+
+### Story 5.1: Данные о размере, ETA и статусе в строке списка
+
+As a user,
+I want to see downloaded/total size, ETA, and a text status under each torrent's name in the list,
+So that I understand progress without opening the detail window.
+
+**Acceptance Criteria:**
+
+**Given** закачка в списке со статусом «Скачивается»
+**When** отображается строка списка
+**Then** под именем показывается вторая строка: «X ГБ / Y ГБ • Осталось N мин/ч • Скачивается»
+**And** ETA показывается только когда `down_speed_bps > 0`, иначе не показывается
+**When** статус — «Раздача» (torrent завершён)
+**Then** вторая строка — «Y ГБ • Раздача», без ETA и без «X / Y»
+**When** статус — «На паузе»
+**Then** вторая строка — «X ГБ / Y ГБ • На паузе», без ETA
+**When** статус — «Проверка»
+**Then** вторая строка — «Проверка…»
+**When** статус — «Ошибка»
+**Then** вторая строка — «Ошибка»
+**And** `TorrentStatus`/`TorrentDetail` (Rust/UniFFI) получают новые поля `total_bytes`/`downloaded_bytes`, проброшенные из уже читаемых в `torrent.stats()` `stats.total_bytes`/`stats.progress_bytes` — не новый engine-функционал, только проброс существующих значений через границу FFI
+**And** размер форматируется через существующий `Formatting.size(_:)`; ETA — через новый `Formatting.eta(_:)`
+
+### Story 5.2: Цвет прогресс-бара по состоянию закачки
+
+As a user,
+I want the progress bar's color to reflect the torrent's state,
+So that I can tell active/paused/done/error apart at a glance without reading text.
+
+**Acceptance Criteria:**
+
+**Given** закачка в списке
+**When** статус — «Скачивается» или «Проверка»
+**Then** прогресс-бар — стандартный accent-цвет (без изменений от текущего поведения)
+**When** прогресс достиг 100% (закачка фактически завершена = раздача)
+**Then** прогресс-бар — `color-success` (#1F9254 light / #3FB873 dark, уже определён в дизайн-системе)
+**When** статус — «На паузе» (независимо от текущего %)
+**Then** прогресс-бар — серый
+**When** статус — «Ошибка»
+**Then** прогресс-бар — красный (системный `Color.red`, отдельный design-токен для error пока не заводим)
+
+### Story 5.3: Hover-тултип со скоростью на иконке меню-бара
+
+As a user,
+I want to see aggregate download/upload speed by hovering the menu-bar icon,
+So that I get a quick glance without clicking to open the popover.
+
+**Acceptance Criteria:**
+
+**Given** приложение запущено, есть ≥1 активная закачка
+**When** навожу курсор на иконку меню-бара без клика
+**Then** показывается системный тултип с суммарной ↓/↑ скоростью по всем активным закачкам (та же агрегация, что уже используется для popover)
+**And** клик по иконке по-прежнему открывает popover как раньше — поведение клика не меняется (UX-DR6 «клик, не hover» остаётся в силе для открытия popover)
+**And** реализация проверяется эмпирически на реальной сборке — надёжность `.help()` на `MenuBarExtra`'s `label:` (рендерится через `NSStatusItem`, не гарантированно ведёт себя как на обычном toolbar-элементе) не предполагается по документации, а тестируется на билде; при отказе — fallback на прямой доступ к `NSStatusItem.button.toolTip` через AppKit
+
+### Story 5.4: Кастомная иконка-насос
+
+As a user,
+I want the app to have a distinctive pump icon instead of the generic default,
+So that the app has its own visual identity in the Dock, Finder, and menu bar.
+
+**Acceptance Criteria:**
+
+**Given** приложение собрано
+**When** смотрю на Dock/Finder
+**Then** иконка приложения — векторный силуэт насоса (custom `AppIcon.appiconset`, все требуемые размеры для macOS)
+**When** смотрю на иконку меню-бара
+**And** нет активных закачек
+**Then** показывается «простой» вариант насоса (outline/приглушённый), заменяя текущий `arrow.up.arrow.down.circle`
+**And** есть ≥1 активная закачка
+**Then** показывается «активный» вариант насоса (акцентный цвет), заменяя текущий `arrow.up.arrow.down.circle.fill`
+**And** оба места (app icon и menu-bar) используют единый визуальный стиль насоса
