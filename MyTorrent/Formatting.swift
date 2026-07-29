@@ -20,6 +20,13 @@ enum Formatting {
         byteCountFormatter.string(fromByteCount: Int64(bytes))
     }
 
+    // Shared by TorrentDetailView.summaryLine and the menu-bar hover tooltip
+    // (Story 5.3) — was duplicated inline in both until this, the second
+    // occurrence, per this file's own extract-on-second-use convention above.
+    static func speedPair(down: UInt64, up: UInt64) -> String {
+        "\(speed(down)) ↓ · \(speed(up)) ↑"
+    }
+
     private static let etaFormatter: DateComponentsFormatter = {
         let formatter = DateComponentsFormatter()
         formatter.allowedUnits = [.day, .hour, .minute]

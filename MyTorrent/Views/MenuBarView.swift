@@ -23,8 +23,7 @@ struct MenuBarView: View {
             if active.isEmpty {
                 Text("main_window.empty_state.message")
             } else {
-                let downTotal = active.reduce(UInt64(0)) { $0 + $1.downSpeedBps }
-                let upTotal = active.reduce(UInt64(0)) { $0 + $1.upSpeedBps }
+                let (downTotal, upTotal) = appModel.activeSpeedTotals
                 HStack {
                     Text("menu_bar.popover.down_speed_label")
                     Spacer()

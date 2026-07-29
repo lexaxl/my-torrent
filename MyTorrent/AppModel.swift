@@ -55,6 +55,31 @@ final class AppModel: ObservableObject {
         torrents.filter { Self.activeStatuses.contains($0.engineStatus) }
     }
 
+    // Raw ↓/↑ aggregation for MenuBarView's popover stats — single pass over
+    // `active` (code review, Story 5.3: two separate `reduce` calls each did
+    // their own O(n) pass over the same array).
+    var activeSpeedTotals: (down: UInt64, up: UInt64) {
+        activeTorrents.reduce((UInt64(0), UInt64(0))) { totals, torrent in
+            (totals.0 + torrent.downSpeedBps, totals.1 + torrent.upSpeedBps)
+        }
+    }
+
+    // Menu-bar hover tooltip text (Story 5.3) — single `activeTorrents` fetch
+    // shared by the emptiness check and the sums (code review: `hasActiveTorrents`
+    // + `activeSpeedTotals` each re-filtered `torrents` independently). Lives here,
+    // not on `MyTorrentApp`, for the same reason `activeSpeedTotals` does: a
+    // reusable, testable computation shouldn't sit in scene-wiring code.
+    var menuBarTooltipText: String {
+        let active = activeTorrents
+        guard !active.isEmpty else {
+            return String(localized: "main_window.empty_state.message")
+        }
+        let totals = active.reduce((UInt64(0), UInt64(0))) { totals, torrent in
+            (totals.0 + torrent.downSpeedBps, totals.1 + torrent.upSpeedBps)
+        }
+        return Formatting.speedPair(down: totals.0, up: totals.1)
+    }
+
     // Shared by MainWindowView.handleOpenURL and MenuBarView's popover actions —
     // both need to activate the app before opening a window, since either can be
     // triggered while MyTorrent (an LSUIElement accessory app) isn't frontmost.

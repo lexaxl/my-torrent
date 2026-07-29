@@ -62,7 +62,7 @@ struct TorrentDetailView: View {
     // still only `pending` (Scope Boundary) — rather than showing misleading zeros.
     private var summaryLine: String {
         guard let detail else { return "" }
-        return "\(Int(detail.progressPercent))% · \(Formatting.speed(detail.downSpeedBps)) ↓ · \(Formatting.speed(detail.upSpeedBps)) ↑ · \(detail.peersConnected)"
+        return "\(Int(detail.progressPercent))% · \(Formatting.speedPair(down: detail.downSpeedBps, up: detail.upSpeedBps)) · \(detail.peersConnected)"
     }
 
     private var tabSwitcher: some View {

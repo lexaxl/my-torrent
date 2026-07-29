@@ -105,6 +105,10 @@ struct MyTorrentApp: App {
             Image(systemName: appModel.hasActiveTorrents
                 ? "arrow.up.arrow.down.circle.fill"
                 : "arrow.up.arrow.down.circle")
+                // Story 5.3 — hover tooltip, additive to the existing
+                // click-opens-popover behavior (UX-DR6 "click, not hover"
+                // still governs the popover itself).
+                .help(appModel.menuBarTooltipText)
         }
         .menuBarExtraStyle(.window)
     }
