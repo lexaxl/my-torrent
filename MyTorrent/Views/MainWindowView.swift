@@ -167,6 +167,24 @@ struct MainWindowView: View {
         }
     }
 
+    // Progress bar color by torrent state (Story 5.2). Deliberately does not
+    // check `progressPercent` separately — Story 5.1's code review proved
+    // (by reading librqbit 8.1.1's `chunk_tracker.rs`) that `downloading`
+    // structurally implies `downloadedBytes < totalBytes`, so "downloading at
+    // 100%" is an unreachable engine state, not a case to special-case here.
+    private func progressTint(for torrent: TorrentStatus) -> Color {
+        switch torrent.engineStatus {
+        case .downloading, .checking, .resolving:
+            return .accentColor
+        case .seeding:
+            return .torrentSuccess
+        case .paused:
+            return .gray
+        case .error:
+            return .red
+        }
+    }
+
     private var downloadsList: some View {
         VStack(spacing: 0) {
             columnHeaders
@@ -214,6 +232,7 @@ struct MainWindowView: View {
             }
             .frame(width: nameColumnWidth, alignment: .leading)
             ProgressView(value: torrent.progressPercent, total: 100)
+                .tint(progressTint(for: torrent))
                 .frame(width: progressColumnWidth, alignment: .leading)
             Text(Formatting.speed(torrent.downSpeedBps))
                 .frame(width: speedColumnWidth, alignment: .trailing)
