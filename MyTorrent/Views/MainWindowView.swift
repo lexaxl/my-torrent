@@ -105,6 +105,68 @@ struct MainWindowView: View {
         return appModel.torrents.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
     }
 
+    // Second line under the torrent name (Story 5.1) — size/ETA/status, composed
+    // from small reusable localized fragments rather than one full-sentence
+    // template per status (same pattern as MenuBarView's stats section).
+    // Hoisted to `static let` (code review, Story 5.1) — `subtitle(for:)` runs
+    // once per row on every ~1s poll tick; these never change at runtime, so
+    // resolving them fresh each tick was needless repeated lookup work, same
+    // reasoning as `Formatting.swift`'s cached `byteCountFormatter`/`etaFormatter`.
+    private static let subtitleETATemplate = String(localized: "main_window.row.subtitle.eta")
+    private static let subtitleStatusDownloading = String(localized: "main_window.row.subtitle.status.downloading")
+    private static let subtitleStatusSeeding = String(localized: "main_window.row.subtitle.status.seeding")
+    private static let subtitleStatusPaused = String(localized: "main_window.row.subtitle.status.paused")
+    private static let subtitleStatusChecking = String(localized: "main_window.row.subtitle.status.checking")
+    private static let subtitleStatusResolving = String(localized: "main_window.row.subtitle.status.resolving")
+    private static let subtitleStatusError = String(localized: "main_window.row.subtitle.status.error")
+
+    // Size-pair fragment ("downloaded / total"), shown only when a size is
+    // known at all — shared by the downloading/paused cases below (code
+    // review, Story 5.1: was duplicated near-verbatim between the two).
+    private func sizePairFragment(_ torrent: TorrentStatus) -> String? {
+        guard torrent.totalBytes > 0 else { return nil }
+        return "\(Formatting.size(torrent.downloadedBytes)) / \(Formatting.size(torrent.totalBytes))"
+    }
+
+    private func subtitle(for torrent: TorrentStatus) -> String {
+        switch torrent.engineStatus {
+        case .downloading:
+            var parts = [String]()
+            if let sizePair = sizePairFragment(torrent) {
+                parts.append(sizePair)
+            }
+            // Guarded, not a bare subtraction — UInt64 underflow traps in Swift, and
+            // downloadedBytes reaching/momentarily exceeding totalBytes right at 100%
+            // is exactly the edge this guards against.
+            let remaining = torrent.totalBytes > torrent.downloadedBytes
+                ? torrent.totalBytes - torrent.downloadedBytes
+                : 0
+            if let eta = Formatting.eta(remainingBytes: remaining, downSpeedBps: torrent.downSpeedBps) {
+                parts.append(String(format: Self.subtitleETATemplate, eta))
+            }
+            parts.append(Self.subtitleStatusDownloading)
+            return parts.joined(separator: " • ")
+        case .seeding:
+            // Code review, Story 5.1: guarded like the downloading/paused cases below
+            // — a finished torrent with totalBytes == 0 (e.g. an all-files-deselected
+            // torrent; librqbit's own `finished()`/`total()` contract allows this) would
+            // otherwise show a degenerate "Zero KB • Раздача" instead of omitting size.
+            guard torrent.totalBytes > 0 else {
+                return Self.subtitleStatusSeeding
+            }
+            return "\(Formatting.size(torrent.totalBytes)) • \(Self.subtitleStatusSeeding)"
+        case .paused:
+            let sizePart = sizePairFragment(torrent).map { "\($0) • " } ?? ""
+            return "\(sizePart)\(Self.subtitleStatusPaused)"
+        case .checking:
+            return Self.subtitleStatusChecking
+        case .resolving:
+            return Self.subtitleStatusResolving
+        case .error: // also the fallback for any future unrecognized status — see TorrentEngineStatus
+            return Self.subtitleStatusError
+        }
+    }
+
     private var downloadsList: some View {
         VStack(spacing: 0) {
             columnHeaders
@@ -141,10 +203,16 @@ struct MainWindowView: View {
 
     private func torrentRow(_ torrent: TorrentStatus) -> some View {
         HStack(spacing: 12) {
-            Text(torrent.name)
-                .frame(width: nameColumnWidth, alignment: .leading)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(torrent.name)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(subtitle(for: torrent))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(width: nameColumnWidth, alignment: .leading)
             ProgressView(value: torrent.progressPercent, total: 100)
                 .frame(width: progressColumnWidth, alignment: .leading)
             Text(Formatting.speed(torrent.downSpeedBps))
@@ -180,17 +248,17 @@ struct MainWindowView: View {
                     // on a stale snapshot here (unlike the label below, which macOS
                     // doesn't let us update once the menu is showing) would call
                     // the wrong one of pause/resume and silently fail.
-                    let liveStatus = appModel.torrents.first(where: { $0.id == torrent.id })?.status
-                    if liveStatus == "paused" {
+                    let liveStatus = appModel.torrents.first(where: { $0.id == torrent.id })?.engineStatus
+                    if liveStatus == .paused {
                         await appModel.resumeTorrent(torrent.id)
                     } else {
                         await appModel.pauseTorrent(torrent.id)
                     }
                 }
             } label: {
-                Text(torrent.status == "paused" ? "main_window.row.context_menu.resume" : "main_window.row.context_menu.pause")
+                Text(torrent.engineStatus == .paused ? "main_window.row.context_menu.resume" : "main_window.row.context_menu.pause")
             }
-            .disabled(torrent.status == "error")
+            .disabled(torrent.engineStatus == .error)
             Button(role: .destructive) {
                 torrentPendingRemoval = torrent
             } label: {

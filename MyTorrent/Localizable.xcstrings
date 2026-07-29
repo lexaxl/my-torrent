@@ -1,531 +1,531 @@
 {
-  "sourceLanguage" : "ru",
-  "strings" : {
-    "main_window.empty_state.message" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No active downloads"
+  "sourceLanguage": "ru",
+  "strings": {
+    "main_window.empty_state.message": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No active downloads"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Нет активных закачек"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет активных закачек"
           }
         }
       }
     },
-    "main_window.toolbar.search_placeholder" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Search"
+    "main_window.toolbar.search_placeholder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Поиск"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск"
           }
         }
       }
     },
-    "main_window.list.header.name" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Name"
+    "main_window.list.header.name": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Имя"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Имя"
           }
         }
       }
     },
-    "main_window.list.header.progress" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Progress"
+    "main_window.list.header.progress": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Progress"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Прогресс"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прогресс"
           }
         }
       }
     },
-    "main_window.list.header.down_speed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "↓"
+    "main_window.list.header.down_speed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↓"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "↓"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↓"
           }
         }
       }
     },
-    "main_window.list.header.up_speed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "↑"
+    "main_window.list.header.up_speed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↑"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "↑"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↑"
           }
         }
       }
     },
-    "main_window.list.header.seed_leech" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Seeds/Peers"
+    "main_window.list.header.seed_leech": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seeds/Peers"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сиды/Личи"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сиды/Личи"
           }
         }
       }
     },
-    "main_window.row.context_menu.pause" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pause"
+    "main_window.row.context_menu.pause": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Пауза"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пауза"
           }
         }
       }
     },
-    "main_window.row.context_menu.resume" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Resume"
+    "main_window.row.context_menu.resume": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Возобновить"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Возобновить"
           }
         }
       }
     },
-    "main_window.row.context_menu.remove" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove"
+    "main_window.row.context_menu.remove": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Удалить"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить"
           }
         }
       }
     },
-    "main_window.row.context_menu.reveal_in_finder" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show in Finder"
+    "main_window.row.context_menu.reveal_in_finder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in Finder"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Показать в Finder"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать в Finder"
           }
         }
       }
     },
-    "main_window.row.context_menu.remove_confirm_title" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove download?"
+    "main_window.row.context_menu.remove_confirm_title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove download?"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Удалить закачку?"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить закачку?"
           }
         }
       }
     },
-    "main_window.row.context_menu.remove_confirm_message" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Downloaded files will remain on disk."
+    "main_window.row.context_menu.remove_confirm_message": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloaded files will remain on disk."
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Скачанные файлы останутся на диске."
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скачанные файлы останутся на диске."
           }
         }
       }
     },
-    "torrent_detail.tabs.files" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Files"
+    "torrent_detail.tabs.files": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Файлы"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файлы"
           }
         }
       }
     },
-    "torrent_detail.tabs.trackers" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Trackers"
+    "torrent_detail.tabs.trackers": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trackers"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Трекеры"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Трекеры"
           }
         }
       }
     },
-    "torrent_detail.tabs.peers" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Peers"
+    "torrent_detail.tabs.peers": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Peers"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Пиры"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пиры"
           }
         }
       }
     },
-    "torrent_detail.peers.empty" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No peers connected"
+    "torrent_detail.peers.empty": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No peers connected"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Нет подключённых пиров"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет подключённых пиров"
           }
         }
       }
     },
-    "settings.header.title" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Settings"
+    "settings.header.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Настройки"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройки"
           }
         }
       }
     },
-    "settings.save_location.label" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Save location"
+    "settings.save_location.label": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save location"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Папка для сохранения"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Папка для сохранения"
           }
         }
       }
     },
-    "settings.save_location.choose_button" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose..."
+    "settings.save_location.choose_button": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose..."
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Выбрать..."
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать..."
           }
         }
       }
     },
-    "settings.save_location.not_writable.title" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Can't save here"
+    "settings.save_location.not_writable.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't save here"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Нельзя сохранять в эту папку"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нельзя сохранять в эту папку"
           }
         }
       }
     },
-    "settings.save_location.not_writable.message" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This folder isn't writable. Choose a different one."
+    "settings.save_location.not_writable.message": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This folder isn't writable. Choose a different one."
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "В эту папку нельзя записывать файлы. Выберите другую."
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В эту папку нельзя записывать файлы. Выберите другую."
           }
         }
       }
     },
-    "settings.seed_duration.label" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Seed after completion"
+    "settings.seed_duration.label": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seed after completion"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Раздавать после завершения"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Раздавать после завершения"
           }
         }
       }
     },
-    "settings.seed_duration.off" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Don't seed"
+    "settings.seed_duration.off": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don't seed"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Не раздавать"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не раздавать"
           }
         }
       }
     },
-    "settings.seed_duration.hours" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "N hours"
+    "settings.seed_duration.hours": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "N hours"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "N часов"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "N часов"
           }
         }
       }
     },
-    "settings.seed_duration.indefinite" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Indefinitely"
+    "settings.seed_duration.indefinite": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indefinitely"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Бессрочно"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бессрочно"
           }
         }
       }
     },
-    "settings.seed_duration.hours_hint" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Counts only while the app is open"
+    "settings.seed_duration.hours_hint": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Counts only while the app is open"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Считается только пока приложение открыто"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Считается только пока приложение открыто"
           }
         }
       }
     },
-    "menu_bar.popover.down_speed_label" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "↓ Download"
+    "menu_bar.popover.down_speed_label": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↓ Download"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "↓ Загрузка"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↓ Загрузка"
           }
         }
       }
     },
-    "menu_bar.popover.up_speed_label" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "↑ Upload"
+    "menu_bar.popover.up_speed_label": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↑ Upload"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "↑ Раздача"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↑ Раздача"
           }
         }
       }
     },
-    "menu_bar.popover.active_label" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Active"
+    "menu_bar.popover.active_label": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Активно"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Активно"
           }
         }
       }
     },
-    "menu_bar.popover.active_count" : {
-      "localizations" : {
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld active download"
+    "menu_bar.popover.active_count": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld active download"
                 }
               },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld active downloads"
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld active downloads"
                 }
               }
             }
           }
         },
-        "ru" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld активная закачка"
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld активная закачка"
                 }
               },
-              "few" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld активные закачки"
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld активные закачки"
                 }
               },
-              "many" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld активных закачек"
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld активных закачек"
                 }
               },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld активных закачек"
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld активных закачек"
                 }
               }
             }
@@ -533,54 +533,166 @@
         }
       }
     },
-    "menu_bar.popover.open_window" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open Window"
+    "menu_bar.popover.open_window": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Window"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Открыть окно"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть окно"
           }
         }
       }
     },
-    "menu_bar.popover.quit" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Quit"
+    "menu_bar.popover.quit": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Выйти"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выйти"
           }
         }
       }
     },
-    "notification.download_complete.title" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Download Complete"
+    "notification.download_complete.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download Complete"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Закачка завершена"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закачка завершена"
+          }
+        }
+      }
+    },
+    "main_window.row.subtitle.eta": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ left"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Осталось %@"
+          }
+        }
+      }
+    },
+    "main_window.row.subtitle.status.downloading": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloading"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скачивается"
+          }
+        }
+      }
+    },
+    "main_window.row.subtitle.status.seeding": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seeding"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Раздача"
+          }
+        }
+      }
+    },
+    "main_window.row.subtitle.status.paused": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На паузе"
+          }
+        }
+      }
+    },
+    "main_window.row.subtitle.status.checking": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверка…"
+          }
+        }
+      }
+    },
+    "main_window.row.subtitle.status.error": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ошибка"
+          }
+        }
+      }
+    },
+    "main_window.row.subtitle.status.resolving": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolving…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Определение…"
           }
         }
       }
     }
   },
-  "version" : "1.0"
+  "version": "1.0"
 }

@@ -871,13 +871,15 @@ public struct TorrentDetail: Equatable, Hashable {
     public var downSpeedBps: UInt64
     public var upSpeedBps: UInt64
     public var peersConnected: UInt32
+    public var totalBytes: UInt64
+    public var downloadedBytes: UInt64
     public var files: [TorrentFile]
     public var trackers: [Tracker]
     public var peers: [Peer]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, name: String, status: String, progressPercent: Double, downSpeedBps: UInt64, upSpeedBps: UInt64, peersConnected: UInt32, files: [TorrentFile], trackers: [Tracker], peers: [Peer]) {
+    public init(id: String, name: String, status: String, progressPercent: Double, downSpeedBps: UInt64, upSpeedBps: UInt64, peersConnected: UInt32, totalBytes: UInt64, downloadedBytes: UInt64, files: [TorrentFile], trackers: [Tracker], peers: [Peer]) {
         self.id = id
         self.name = name
         self.status = status
@@ -885,6 +887,8 @@ public struct TorrentDetail: Equatable, Hashable {
         self.downSpeedBps = downSpeedBps
         self.upSpeedBps = upSpeedBps
         self.peersConnected = peersConnected
+        self.totalBytes = totalBytes
+        self.downloadedBytes = downloadedBytes
         self.files = files
         self.trackers = trackers
         self.peers = peers
@@ -913,6 +917,8 @@ public struct FfiConverterTypeTorrentDetail: FfiConverterRustBuffer {
                 downSpeedBps: FfiConverterUInt64.read(from: &buf), 
                 upSpeedBps: FfiConverterUInt64.read(from: &buf), 
                 peersConnected: FfiConverterUInt32.read(from: &buf), 
+                totalBytes: FfiConverterUInt64.read(from: &buf), 
+                downloadedBytes: FfiConverterUInt64.read(from: &buf), 
                 files: FfiConverterSequenceTypeTorrentFile.read(from: &buf), 
                 trackers: FfiConverterSequenceTypeTracker.read(from: &buf), 
                 peers: FfiConverterSequenceTypePeer.read(from: &buf)
@@ -927,6 +933,8 @@ public struct FfiConverterTypeTorrentDetail: FfiConverterRustBuffer {
         FfiConverterUInt64.write(value.downSpeedBps, into: &buf)
         FfiConverterUInt64.write(value.upSpeedBps, into: &buf)
         FfiConverterUInt32.write(value.peersConnected, into: &buf)
+        FfiConverterUInt64.write(value.totalBytes, into: &buf)
+        FfiConverterUInt64.write(value.downloadedBytes, into: &buf)
         FfiConverterSequenceTypeTorrentFile.write(value.files, into: &buf)
         FfiConverterSequenceTypeTracker.write(value.trackers, into: &buf)
         FfiConverterSequenceTypePeer.write(value.peers, into: &buf)
@@ -1015,10 +1023,12 @@ public struct TorrentStatus: Equatable, Hashable {
     public var downSpeedBps: UInt64
     public var upSpeedBps: UInt64
     public var peersConnected: UInt32
+    public var totalBytes: UInt64
+    public var downloadedBytes: UInt64
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, name: String, status: String, progressPercent: Double, downSpeedBps: UInt64, upSpeedBps: UInt64, peersConnected: UInt32) {
+    public init(id: String, name: String, status: String, progressPercent: Double, downSpeedBps: UInt64, upSpeedBps: UInt64, peersConnected: UInt32, totalBytes: UInt64, downloadedBytes: UInt64) {
         self.id = id
         self.name = name
         self.status = status
@@ -1026,6 +1036,8 @@ public struct TorrentStatus: Equatable, Hashable {
         self.downSpeedBps = downSpeedBps
         self.upSpeedBps = upSpeedBps
         self.peersConnected = peersConnected
+        self.totalBytes = totalBytes
+        self.downloadedBytes = downloadedBytes
     }
 
     
@@ -1050,7 +1062,9 @@ public struct FfiConverterTypeTorrentStatus: FfiConverterRustBuffer {
                 progressPercent: FfiConverterDouble.read(from: &buf), 
                 downSpeedBps: FfiConverterUInt64.read(from: &buf), 
                 upSpeedBps: FfiConverterUInt64.read(from: &buf), 
-                peersConnected: FfiConverterUInt32.read(from: &buf)
+                peersConnected: FfiConverterUInt32.read(from: &buf), 
+                totalBytes: FfiConverterUInt64.read(from: &buf), 
+                downloadedBytes: FfiConverterUInt64.read(from: &buf)
         )
     }
 
@@ -1062,6 +1076,8 @@ public struct FfiConverterTypeTorrentStatus: FfiConverterRustBuffer {
         FfiConverterUInt64.write(value.downSpeedBps, into: &buf)
         FfiConverterUInt64.write(value.upSpeedBps, into: &buf)
         FfiConverterUInt32.write(value.peersConnected, into: &buf)
+        FfiConverterUInt64.write(value.totalBytes, into: &buf)
+        FfiConverterUInt64.write(value.downloadedBytes, into: &buf)
     }
 }
 

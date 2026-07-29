@@ -136,8 +136,11 @@ fn derive_status(state: TorrentStatsState, finished: bool) -> &'static str {
 
 /// Shared by `get_all_torrents` and `get_torrent_details` (Story 2.1) — both derive
 /// the same list-level fields from a `TorrentStats` snapshot; kept in one place so
-/// the two calls can't silently drift apart (see Story 2.1 Dev Notes).
-fn summarize_stats(stats: &TorrentStats) -> (String, f64, u64, u64, u32) {
+/// the two calls can't silently drift apart (see Story 2.1 Dev Notes). `total_bytes`/
+/// `downloaded_bytes` (Story 5.1) are included here rather than read directly from
+/// `stats` at each call site — code review on Story 5.1 found the two call sites
+/// reading them independently defeated this very function's anti-drift purpose.
+fn summarize_stats(stats: &TorrentStats) -> (String, f64, u64, u64, u32, u64, u64) {
     let status = derive_status(stats.state, stats.finished);
     let (down_speed_bps, up_speed_bps, peers_connected) = match &stats.live {
         Some(live) => (
@@ -152,7 +155,15 @@ fn summarize_stats(stats: &TorrentStats) -> (String, f64, u64, u64, u32) {
     } else {
         stats.progress_bytes as f64 / stats.total_bytes as f64 * 100.0
     };
-    (status.to_string(), progress_percent, down_speed_bps, up_speed_bps, peers_connected)
+    (
+        status.to_string(),
+        progress_percent,
+        down_speed_bps,
+        up_speed_bps,
+        peers_connected,
+        stats.total_bytes,
+        stats.progress_bytes,
+    )
 }
 
 struct PendingTorrent {
@@ -250,7 +261,7 @@ impl Engine {
             torrents
                 .map(|(idx, torrent)| {
                     let stats = torrent.stats();
-                    let (status, progress_percent, down_speed_bps, up_speed_bps, peers_connected) =
+                    let (status, progress_percent, down_speed_bps, up_speed_bps, peers_connected, total_bytes, downloaded_bytes) =
                         summarize_stats(&stats);
                     (
                         idx,
@@ -262,6 +273,8 @@ impl Engine {
                             down_speed_bps,
                             up_speed_bps,
                             peers_connected,
+                            total_bytes,
+                            downloaded_bytes,
                         },
                     )
                 })
@@ -289,6 +302,8 @@ impl Engine {
                         down_speed_bps: 0,
                         up_speed_bps: 0,
                         peers_connected: 0,
+                        total_bytes: 0,
+                        downloaded_bytes: 0,
                     },
                 )
             })
@@ -367,7 +382,7 @@ impl Engine {
             .get(idor)
             .ok_or_else(|| internal_error(format!("torrent not found: {id}")))?;
         let stats = handle.stats();
-        let (status, progress_percent, down_speed_bps, up_speed_bps, peers_connected) =
+        let (status, progress_percent, down_speed_bps, up_speed_bps, peers_connected, total_bytes, downloaded_bytes) =
             summarize_stats(&stats);
 
         // `file_progress` is aligned by index with `file_infos` — both come from the
@@ -461,6 +476,8 @@ impl Engine {
             down_speed_bps,
             up_speed_bps,
             peers_connected,
+            total_bytes,
+            downloaded_bytes,
             files,
             trackers,
             peers,
@@ -1030,6 +1047,9 @@ mod tests {
         assert_eq!(detail.down_speed_bps, summary.down_speed_bps);
         assert_eq!(detail.up_speed_bps, summary.up_speed_bps);
         assert_eq!(detail.peers_connected, summary.peers_connected);
+        assert_eq!(detail.total_bytes, summary.total_bytes);
+        assert_eq!(detail.downloaded_bytes, summary.downloaded_bytes);
+        assert!(detail.total_bytes >= detail.downloaded_bytes);
     }
 
     #[test]

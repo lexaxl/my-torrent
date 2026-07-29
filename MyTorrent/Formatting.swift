@@ -19,4 +19,22 @@ enum Formatting {
     static func size(_ bytes: UInt64) -> String {
         byteCountFormatter.string(fromByteCount: Int64(bytes))
     }
+
+    private static let etaFormatter: DateComponentsFormatter = {
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = [.day, .hour, .minute]
+        formatter.maximumUnitCount = 1
+        formatter.unitsStyle = .abbreviated
+        return formatter
+    }()
+
+    // nil when ETA isn't meaningful (Story 5.1 AC2): no speed, nothing left to
+    // download, or the interval rounds under a minute — omit the fragment rather
+    // than show "0 min left".
+    static func eta(remainingBytes: UInt64, downSpeedBps: UInt64) -> String? {
+        guard downSpeedBps > 0, remainingBytes > 0 else { return nil }
+        let seconds = Double(remainingBytes) / Double(downSpeedBps)
+        guard seconds >= 60 else { return nil }
+        return etaFormatter.string(from: seconds)
+    }
 }

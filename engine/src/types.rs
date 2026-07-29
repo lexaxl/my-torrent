@@ -27,6 +27,8 @@ pub struct TorrentStatus {
     pub down_speed_bps: u64,
     pub up_speed_bps: u64,
     pub peers_connected: u32,
+    pub total_bytes: u64,
+    pub downloaded_bytes: u64,
 }
 
 #[derive(uniffi::Record)]
@@ -57,6 +59,8 @@ pub struct TorrentDetail {
     pub down_speed_bps: u64,
     pub up_speed_bps: u64,
     pub peers_connected: u32,
+    pub total_bytes: u64,
+    pub downloaded_bytes: u64,
     pub files: Vec<TorrentFile>,
     pub trackers: Vec<Tracker>,
     pub peers: Vec<Peer>,

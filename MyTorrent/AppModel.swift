@@ -31,15 +31,16 @@ final class AppModel: ObservableObject {
     // (active = {Downloading, Checking, Seeding}), plus "resolving" — a magnet
     // pending background resolution (Story 1.2) isn't in that table (written
     // before magnets existed), but must count as active or the poller would
-    // never catch its transition into a real status.
-    private static let seedingStatus = "seeding"
-    private static let activeStatuses: Set<String> = ["checking", "downloading", seedingStatus, "resolving"]
+    // never catch its transition into a real status. Uses the shared
+    // `TorrentEngineStatus` enum (Story 5.1 code review), not raw strings —
+    // this was one of three independent hardcoded-vocabulary sites found.
+    private static let activeStatuses: Set<TorrentEngineStatus> = [.checking, .downloading, .seeding, .resolving]
 
     // Single source of truth for the active/inactive partition — `startPollingIfNeeded`/
     // `pollLoop` (below) and the menu-bar popover (Story 4.1) both read this instead of
     // each re-checking `activeStatuses` independently.
     var hasActiveTorrents: Bool {
-        torrents.contains(where: { Self.activeStatuses.contains($0.status) })
+        torrents.contains(where: { Self.activeStatuses.contains($0.engineStatus) })
     }
 
     // Second consumer of the active/inactive partition (Story 4.1's menu-bar
@@ -51,7 +52,7 @@ final class AppModel: ObservableObject {
     // definition into a separate "poll-active" vs "display-active" set purely to
     // hide that brief blip isn't worth the two-definitions-to-keep-in-sync risk.
     var activeTorrents: [TorrentStatus] {
-        torrents.filter { Self.activeStatuses.contains($0.status) }
+        torrents.filter { Self.activeStatuses.contains($0.engineStatus) }
     }
 
     // Shared by MainWindowView.handleOpenURL and MenuBarView's popover actions —
@@ -260,8 +261,8 @@ final class AppModel: ObservableObject {
         // torrent back-to-back. Realistic for this single-user hobby app's torrent
         // counts; a combined "N downloads complete" banner would be over-building
         // for a case that's rare and merely a minor UX flood, not a correctness bug.
-        for torrent in newTorrents where torrent.status == Self.seedingStatus {
-            if let previous = previousStatusByID[torrent.id], previous != Self.seedingStatus {
+        for torrent in newTorrents where torrent.engineStatus == .seeding {
+            if let previous = previousStatusByID[torrent.id], previous != TorrentEngineStatus.seeding.rawValue {
                 postCompletionNotification(torrentID: torrent.id, torrentName: torrent.name)
             }
         }
