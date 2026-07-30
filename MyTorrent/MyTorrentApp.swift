@@ -45,11 +45,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // `LSUIElement` (Info.plist) alone does not stop the app from quitting when its
-    // last window closes — confirmed empirically (Story 1.3 Task 6). AD-4's polling
-    // must survive every window being closed, so this must return false explicitly.
+    // This `false` (not Info.plist config) is what keeps the process alive when the
+    // last window closes — confirmed empirically back when the app was still an
+    // `LSUIElement` accessory (Story 1.3 Task 6), and it stays the load-bearing half
+    // of AD-7's surviving core now that the app is a regular Dock app (Story 6.1):
+    // AD-4's polling must survive every window being closed.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    // Story 6.1 — same late-wiring closure pattern as `onOpenURLs`, but simpler:
+    // no buffering needed. If termination somehow races ahead of the wiring
+    // (`nil`), the safe behavior is "no unfinished downloads" — never block quit.
+    var hasUnfinishedDownloads: (() -> Bool)?
+
+    // Story 6.1 — all three quit paths (Cmd+Q via the standard app menu, Dock icon →
+    // Quit, and MenuBarView's own Quit button calling `NSApp.terminate(nil)`) funnel
+    // through this one hook, so the confirmation behavior can't drift between them.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard hasUnfinishedDownloads?() == true else { return .terminateNow }
+        // The quit request may come from a context where MyTorrent isn't frontmost
+        // (Dock right-click menu); without activation the modal alert can end up
+        // behind other apps' windows.
+        AppModel.activateApp()
+        // «Отмена» goes first: NSAlert's first button is the default (Return
+        // key), and the default of a data-loss confirmation must be the safe
+        // action (code review, Story 6.1) — a reflexive Return must not kill the
+        // very downloads this dialog exists to protect. No "will resume next
+        // launch" reassurance in the message on purpose: the session has no
+        // persistence (see `TorrentEngineStatus.blocksQuit`), interruption is real.
+        let response = Alerts.runWarning(
+            title: String(localized: "quit_confirm.title"),
+            message: String(localized: "quit_confirm.message"),
+            buttons: [
+                String(localized: "quit_confirm.cancel_button"),
+                String(localized: "quit_confirm.quit_button"),
+            ]
+        )
+        return response == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
     }
 }
 
@@ -121,6 +154,15 @@ struct MyTorrentApp: App {
                 // click-opens-popover behavior (UX-DR6 "click, not hover"
                 // still governs the popover itself).
                 .help(appModel.menuBarTooltipText)
+                // Story 6.1 — quit-confirmation wiring lives HERE, not in
+                // MainWindowView.onAppear like `onOpenURLs`, because this label
+                // is the app's only always-alive view: `applicationShouldTerminate`
+                // must work while the main window is closed, and a closure wired
+                // from a since-dismantled window's view is exactly the kind of
+                // undocumented territory this app avoids.
+                .onAppear {
+                    appDelegate.hasUnfinishedDownloads = { appModel.hasUnfinishedDownloads }
+                }
         }
         .menuBarExtraStyle(.window)
     }

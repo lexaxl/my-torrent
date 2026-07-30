@@ -66,10 +66,13 @@ struct MenuBarView: View {
 
             Divider()
 
-            // AD-7: the menu-bar is meant to be the persistent presence whose only
-            // way out is an explicit Quit action — before this button, nothing in
-            // the app (an LSUIElement accessory with no Dock icon/app menu) could
-            // quit it once its windows were closed.
+            // AD-7 (as revised by Story 6.1): quitting is always an explicit act.
+            // This button predates the Dock icon — it was once the app's ONLY way
+            // to quit (LSUIElement accessory era); now it's a convenience alongside
+            // Cmd+Q and Dock → Quit. All three funnel through the same
+            // `AppDelegate.applicationShouldTerminate` (which owns the
+            // unfinished-downloads confirmation), so quit behavior can't drift
+            // between paths.
             Button("menu_bar.popover.quit") {
                 NSApp.terminate(nil)
             }

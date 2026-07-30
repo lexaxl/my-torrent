@@ -33,6 +33,7 @@ FR10: Each downloads-list row shows a subtitle line with downloaded/total size, 
 FR11: The row's progress bar color reflects torrent state — standard accent while downloading/checking, `color-success` once complete (seeding), gray while paused, red on error.
 FR12: Hovering the menu-bar icon (no click) shows a tooltip with aggregate download/upload speed across all active torrents.
 FR13: The app has a custom pump-icon visual identity — Dock/Finder app icon and a two-state (idle/active) menu-bar icon, replacing the default Xcode icon and generic SF Symbols.
+FR14: While running, the app shows its icon in the Dock as a regular macOS app (revises AD-7's accessory lifecycle): clicking the Dock icon with no windows open reopens the main window; quitting (Cmd+Q / Dock → Quit / menu-bar Quit) asks for confirmation only when unfinished downloads are in progress; closing all windows still never terminates the process.
 
 ### NonFunctional Requirements
 
@@ -87,6 +88,7 @@ FR10: Epic 5 - row subtitle (size/ETA/status)
 FR11: Epic 5 - progress bar state color
 FR12: Epic 5 - menu-bar hover tooltip
 FR13: Epic 5 - custom pump icon (app + menu-bar)
+FR14: Epic 6 - Dock icon while running (AD-7 revision)
 NFR1-NFR6: cross-cutting, established in Epic 1 (engine/shell foundation per Architecture Spine AD-1 through AD-10), relied upon by all later epics
 
 ## Epic List
@@ -110,6 +112,10 @@ NFR1-NFR6: cross-cutting, established in Epic 1 (engine/shell foundation per Arc
 ### Epic 5: Больше данных в списке и визуальная идентичность
 Пользователь видит размер, ETA и статус закачки прямо в строке списка, без открытия окна деталей; прогресс-бар меняет цвет в зависимости от состояния закачки; наведение на иконку меню-бара показывает суммарную скорость без клика; у приложения появляется собственная иконка-насос (Dock/Finder + меню-бар, два состояния) вместо стандартной Xcode-иконки и системных SF Symbol.
 **FRs covered:** FR10, FR11, FR12, FR13
+
+### Epic 6: Обычное поведение macOS-приложения
+Приложение перестаёт быть «невидимкой»: пока оно запущено, его иконка-насос видна в Dock и в Cmd+Tab, клик по иконке Dock открывает главное окно, а случайный Cmd+Q при идущих закачках перехватывается диалогом подтверждения. Пересматривает AD-7 (accessory lifecycle → regular app), сохраняя его ядро: закрытие всех окон никогда не завершает процесс, закачки продолжаются в фоне.
+**FRs covered:** FR14
 
 ---
 
@@ -369,3 +375,38 @@ So that the app has its own visual identity in the Dock, Finder, and menu bar.
 **And** есть ≥1 активная закачка
 **Then** показывается «активный» вариант насоса (акцентный цвет), заменяя текущий `arrow.up.arrow.down.circle.fill`
 **And** оба места (app icon и menu-bar) используют единый визуальный стиль насоса
+
+## Epic 6: Обычное поведение macOS-приложения
+
+Приложение перестаёт быть «невидимкой»: пока оно запущено, его иконка-насос видна в Dock и в Cmd+Tab, клик по иконке Dock открывает главное окно, а случайный Cmd+Q при идущих закачках перехватывается диалогом подтверждения. Пересматривает AD-7 (accessory lifecycle → regular app), сохраняя его ядро: закрытие всех окон никогда не завершает процесс.
+
+### Story 6.1: Иконка в Dock во время работы
+
+As a user,
+I want the app to show its icon in the Dock while it is running,
+So that I can see it's running, switch to it, and reopen its window the way I do with any other Mac app.
+
+**Acceptance Criteria:**
+
+**Given** приложение запущено
+**Then** иконка-насос видна в Dock всё время работы (и в Cmd+Tab), включая состояние «все окна закрыты, закачки идут в фоне» — `LSUIElement` убран из `Info.plist` (статический вариант, не `setActivationPolicy` на лету)
+
+**Given** все окна закрыты, приложение работает
+**When** кликаю по иконке в Dock
+**Then** открывается и активируется главное окно (`applicationShouldHandleReopen`, открытие окна через closure-паттерн, уже установленный `onOpenURLs`)
+
+**Given** закрываю все окна
+**Then** приложение продолжает работать, закачки не прерываются (ядро AD-7 сохраняется — `applicationShouldTerminateAfterLastWindowClosed` остаётся `false`)
+
+**Given** есть ≥1 незавершённая закачка (downloading/checking/resolving — **не** seeding: новое computed-свойство в `AppModel` рядом с `hasActiveTorrents`, с doc-комментарием, почему это другое множество статусов, чем `activeStatuses`)
+**When** выхожу любым путём — Cmd+Q, ПКМ по Dock-иконке → «Завершить», кнопка Quit в попапе меню-бара (все три проходят через `applicationShouldTerminate`)
+**Then** перед выходом показывается диалог подтверждения («идут закачки — точно завершить?»), с предварительным `NSApp.activate`, чтобы диалог не оказался позади чужих окон
+**And** «Отмена» оставляет приложение работать, подтверждение завершает его
+
+**Given** незавершённых закачек нет (пусто, всё на паузе или только раздачи)
+**When** выхожу любым из тех же путей
+**Then** приложение завершается сразу, без диалога
+
+**And** иконка меню-бара, тултип и popover не меняются — Dock и меню-бар сосуществуют
+**And** `ARCHITECTURE-SPINE.md` AD-7 переписан: accessory → regular app; правила «закрытие окон никогда не завершает процесс» и «не sandboxed» сохраняются; устаревший комментарий у Quit-кнопки в `MenuBarView` («единственный способ выйти») исправлен
+**And** строки диалога локализованы через существующий `.xcstrings`-паттерн

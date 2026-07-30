@@ -163,11 +163,10 @@ struct SettingsView: View {
     }
 
     private func showNotWritableAlert(for path: String) {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = String(localized: "settings.save_location.not_writable.title")
-        alert.informativeText = String(localized: "settings.save_location.not_writable.message") + "\n\n" + path
-        alert.runModal()
+        Alerts.runWarning(
+            title: String(localized: "settings.save_location.not_writable.title"),
+            message: String(localized: "settings.save_location.not_writable.message") + "\n\n" + path
+        )
     }
 }
 

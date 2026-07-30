@@ -67,7 +67,7 @@ graph TD
 - **Rule:**
   - The shell polls a single synchronous UniFFI snapshot function (e.g. `getAllTorrents() -> [TorrentStatus]`) on a ~1 second timer whenever at least one torrent is **active** (see Consistency Conventions for the active/inactive partition — Seeding counts as active).
   - **Bootstrap exemption:** on app launch, the shell performs exactly one unconditional snapshot call — exempt from the "poll only while active" gate — to discover torrents `librqbit` auto-resumed from its own session state. That call's result determines whether the recurring timer starts.
-  - **Ownership:** the polling `Task`/timer is owned by an app-lifetime object (e.g. an `AppModel` created by `MyTorrentApp`), never by a View's `.task`/`.onAppear`/`.onDisappear`. Polling must survive every window being closed — that is the entire point of AD-7's accessory-app lifecycle.
+  - **Ownership:** the polling `Task`/timer is owned by an app-lifetime object (e.g. an `AppModel` created by `MyTorrentApp`), never by a View's `.task`/`.onAppear`/`.onDisappear`. Polling must survive every window being closed — that is the entire point of AD-7's background-surviving lifecycle.
   - **Completion detection:** the shell detects a torrent's transition into `Completed`/`Seeding` by diffing consecutive snapshots (previous-status vs. current-status per torrent id) and fires the local `UNUserNotificationCenter` notification on that transition. No separate "on complete" callback exists — this diffing is the only completion signal.
   - The timer stops entirely once a poll shows zero active torrents — that is what "idle" means for the near-zero-CPU requirement.
   - The core exposes no UniFFI callback/foreign-callback interfaces for state push. [ADOPTED]
@@ -84,11 +84,11 @@ graph TD
 - **Prevents:** ad-hoc string or integer error codes on one side that the other side doesn't parse consistently
 - **Rule:** every fallible UniFFI function returns `Result<T, EngineError>`, mapped by UniFFI codegen to Swift `throws`. No error is surfaced as a bare string or numeric code. A Rust panic crossing the FFI boundary aborts the whole process (UI included) unless caught — every UniFFI-exposed function body is wrapped so a panic converts to `EngineError::Internal`, never an unhandled abort. [ADOPTED]
 
-### AD-7 — Accessory app lifecycle; not sandboxed
+### AD-7 — Regular app with a background-surviving lifecycle; not sandboxed
 
 - **Binds:** MyTorrent/ (app target config), packaging
-- **Prevents:** the app quitting when the user closes the main window (which would silently kill AD-4's polling, menu-bar updates, and completion notifications — defeating the entire "runs quietly in the background" product concept); an implementer defaulting to macOS App Sandbox entitlements meant for App Store distribution
-- **Rule:** the app runs as an `LSUIElement`/accessory app — closing all windows never terminates the process; the menu-bar (`MenuBarExtra`) is the persistent presence and the only way to quit is an explicit Quit action. The app is **not** sandboxed — this is non-App-Store, unsigned distribution (AD-10), so App Sandbox entitlements are unnecessary overhead, not a requirement. [ADOPTED]
+- **Prevents:** the app quitting when the user closes the main window (which would silently kill AD-4's polling, menu-bar updates, and completion notifications — defeating the "keeps working in the background" product concept); an accidental Cmd+Q silently interrupting unfinished downloads now that standard quit paths exist; an implementer defaulting to macOS App Sandbox entitlements meant for App Store distribution
+- **Rule:** the app runs as a regular macOS app — Dock icon and Cmd+Tab presence while running (Story 6.1 revised the original `LSUIElement`/accessory choice, which shipped v0.1.0). The original decision's core survives unchanged: closing all windows never terminates the process (`applicationShouldTerminateAfterLastWindowClosed` → `false` — this delegate return, not Info.plist config, is what keeps the process alive), and quitting is always an explicit act. All quit paths (Cmd+Q, Dock → Quit, menu-bar Quit) funnel through `applicationShouldTerminate`, which asks for confirmation only when unfinished (non-seeding) downloads are in progress — the session has no persistence, so interruption is real. The app is **not** sandboxed — this is non-App-Store, unsigned distribution (AD-10), so App Sandbox entitlements are unnecessary overhead, not a requirement. [ADOPTED; revised 2026-07-30, Story 6.1]
 
 ### AD-8 — Mutation calls are consistency-blocking
 
@@ -145,7 +145,7 @@ my-torrent/
       types.rs                   # TorrentStatus, TorrentFile, Tracker, Peer, EngineError — UniFFI-exposed shapes
     Cargo.toml
   MyTorrent/                     # SwiftUI app target (Xcode project)
-    MyTorrentApp.swift           # App entry: WindowGroup (main window) + MenuBarExtra, accessory lifecycle (AD-7)
+    MyTorrentApp.swift           # App entry: WindowGroup (main window) + MenuBarExtra, background-surviving regular-app lifecycle (AD-7)
     AppModel.swift                # App-lifetime ObservableObject — owns the poll timer/Task (AD-4), survives all windows closing
     Views/
       MainWindowView.swift       # 1.1 — downloads list, toolbar, empty state

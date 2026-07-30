@@ -27,20 +27,23 @@ final class AppModel: ObservableObject {
     // torrent's status as of the previous snapshot.
     private var previousStatusByID: [String: String]?
 
-    // Matches the Architecture Spine's Consistency Conventions
-    // (active = {Downloading, Checking, Seeding}), plus "resolving" — a magnet
-    // pending background resolution (Story 1.2) isn't in that table (written
-    // before magnets existed), but must count as active or the poller would
-    // never catch its transition into a real status. Uses the shared
-    // `TorrentEngineStatus` enum (Story 5.1 code review), not raw strings —
-    // this was one of three independent hardcoded-vocabulary sites found.
-    private static let activeStatuses: Set<TorrentEngineStatus> = [.checking, .downloading, .seeding, .resolving]
+    // Both partitions below are defined as exhaustive switches on
+    // `TorrentEngineStatus` (`isActive`/`blocksQuit`), not `Set` literals here —
+    // Story 6.1 code review: a set literal compiles clean when a new status case
+    // is added, silently misclassifying it; the enum's switches can't.
 
     // Single source of truth for the active/inactive partition — `startPollingIfNeeded`/
     // `pollLoop` (below) and the menu-bar popover (Story 4.1) both read this instead of
-    // each re-checking `activeStatuses` independently.
+    // each re-checking `isActive` independently.
     var hasActiveTorrents: Bool {
-        torrents.contains(where: { Self.activeStatuses.contains($0.engineStatus) })
+        torrents.contains(where: { $0.engineStatus.isActive })
+    }
+
+    // Read by AppDelegate.applicationShouldTerminate (via the closure wired in
+    // MyTorrentApp) to decide whether quitting needs a confirmation dialog.
+    // Why this is narrower than `hasActiveTorrents`: see `blocksQuit`'s doc.
+    var hasUnfinishedDownloads: Bool {
+        torrents.contains(where: { $0.engineStatus.blocksQuit })
     }
 
     // Second consumer of the active/inactive partition (Story 4.1's menu-bar
@@ -52,7 +55,7 @@ final class AppModel: ObservableObject {
     // definition into a separate "poll-active" vs "display-active" set purely to
     // hide that brief blip isn't worth the two-definitions-to-keep-in-sync risk.
     var activeTorrents: [TorrentStatus] {
-        torrents.filter { Self.activeStatuses.contains($0.engineStatus) }
+        torrents.filter { $0.engineStatus.isActive }
     }
 
     // Raw ↓/↑ aggregation for MenuBarView's popover stats — single pass over
@@ -80,11 +83,20 @@ final class AppModel: ObservableObject {
         return Formatting.speedPair(down: totals.0, up: totals.1)
     }
 
-    // Shared by MainWindowView.handleOpenURL and MenuBarView's popover actions —
-    // both need to activate the app before opening a window, since either can be
-    // triggered while MyTorrent (an LSUIElement accessory app) isn't frontmost.
-    static func activateAndOpenWindow(id: String, openWindow: OpenWindowAction) {
+    // Single home for the app-activation idiom (Story 6.1 code review: a second
+    // inline copy had appeared in `applicationShouldTerminate`, and
+    // `ignoringOtherApps:` is deprecated on macOS 14+ — when it's migrated to
+    // plain `NSApp.activate()`, this is the only place to touch).
+    static func activateApp() {
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // Shared by MainWindowView.handleOpenURL and MenuBarView's popover actions —
+    // both need to activate the app before opening a window, since either can
+    // fire while MyTorrent isn't frontmost (a magnet/.torrent open arrives from
+    // another app; clicking the menu-bar popover doesn't make the app active).
+    static func activateAndOpenWindow(id: String, openWindow: OpenWindowAction) {
+        activateApp()
         openWindow(id: id)
     }
 
