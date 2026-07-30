@@ -102,14 +102,71 @@ struct MyTorrentApp: App {
             // `hasActiveTorrents` short-circuits (`contains(where:)`), unlike
             // `activeTorrents.isEmpty` which would allocate the full filtered
             // array just to answer a yes/no question on every poll tick.
-            Image(systemName: appModel.hasActiveTorrents
-                ? "arrow.up.arrow.down.circle.fill"
-                : "arrow.up.arrow.down.circle")
+            // Story 5.4 — custom pump glyph, replacing the generic
+            // arrow.up.arrow.down.circle(.fill) SF Symbol: outline/muted when
+            // idle, filled/accent when active. Drawn as a plain SwiftUI
+            // `Shape` (`PumpShape` below), not a raster `Assets.xcassets`
+            // image — confirmed empirically on a real build (see this
+            // story's Scope Boundary for the crowded-menu-bar false-negative
+            // this session hit and resolved before settling on this design).
+            Group {
+                if appModel.hasActiveTorrents {
+                    PumpShape().fill(Color.torrentAccent)
+                } else {
+                    PumpShape().stroke(Color.torrentMuted, style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+                }
+            }
+            .frame(width: 18, height: 18)
                 // Story 5.3 — hover tooltip, additive to the existing
                 // click-opens-popover behavior (UX-DR6 "click, not hover"
                 // still governs the popover itself).
                 .help(appModel.menuBarTooltipText)
         }
         .menuBarExtraStyle(.window)
+    }
+}
+
+// Story 5.4 — menu-bar pump glyph, a plain SwiftUI `Shape`. Geometry mirrors
+// the app icon's pump silhouette (`AppIcon.appiconset` source) so both places
+// read as the same shape — outline/muted when idle, filled/accent when
+// active, matching the "простой"/"активный" pair epics.md Story 5.4 AC1
+// describes.
+private struct PumpShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        // Content bounding box in the shapes' own coordinate space below is
+        // x:55-145 (width 90), y:20-160 (height 140); center it in `rect`
+        // with an 0.85 fill factor for a small margin. Maps points directly
+        // (rather than building the path in raw coordinates and calling
+        // `.applying(someComposedCGAffineTransform)`) to avoid relying on
+        // `CGAffineTransform.translatedBy`/`.scaledBy` chain composition
+        // order, which is easy to get backwards and silently place the whole
+        // shape off in space outside the tiny menu-bar frame (hit this
+        // exact bug earlier in this story).
+        let scale = min(rect.width / 90, rect.height / 140) * 0.85
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: (x - 100) * scale + rect.midX, y: (y - 90) * scale + rect.midY)
+        }
+
+        var glyphPath = Path()
+        glyphPath.addRoundedRect(
+            in: CGRect(origin: p(55, 20), size: CGSize(width: 90 * scale, height: 16 * scale)),
+            cornerSize: CGSize(width: 8 * scale, height: 8 * scale)
+        )
+        glyphPath.addRoundedRect(
+            in: CGRect(origin: p(90, 34), size: CGSize(width: 20 * scale, height: 26 * scale)),
+            cornerSize: CGSize(width: 6 * scale, height: 6 * scale)
+        )
+        glyphPath.addRoundedRect(
+            in: CGRect(origin: p(65, 58), size: CGSize(width: 70 * scale, height: 70 * scale)),
+            cornerSize: CGSize(width: 14 * scale, height: 14 * scale)
+        )
+        var base = Path()
+        base.move(to: p(75, 128))
+        base.addLine(to: p(125, 128))
+        base.addLine(to: p(140, 160))
+        base.addLine(to: p(60, 160))
+        base.closeSubpath()
+        glyphPath.addPath(base)
+        return glyphPath
     }
 }
