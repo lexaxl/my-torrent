@@ -255,7 +255,7 @@ void uniffi_engine_fn_free_engine(uint64_t handle, RustCallStatus *_Nonnull out_
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_FN_CONSTRUCTOR_ENGINE_NEW
 #define UNIFFI_FFIDEF_UNIFFI_ENGINE_FN_CONSTRUCTOR_ENGINE_NEW
-uint64_t uniffi_engine_fn_constructor_engine_new(RustBuffer download_dir, RustCallStatus *_Nonnull out_status
+uint64_t uniffi_engine_fn_constructor_engine_new(RustBuffer download_dir, RustBuffer state_dir, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_FN_METHOD_ENGINE_ADD_TORRENT

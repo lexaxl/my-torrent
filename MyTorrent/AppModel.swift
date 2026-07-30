@@ -106,7 +106,14 @@ final class AppModel: ObservableObject {
 
     private func setUpEngine(downloadDir: String) async {
         do {
-            engine = try await Task.detached { try Engine(downloadDir: downloadDir) }.value
+            // Story 6.2 — the session's persistence folder (derived by
+            // `AppSettings.sessionStateDirectory`, under Application Support).
+            // Creating it is treated exactly like an engine-init failure below —
+            // without the state dir there is no session to build.
+            let stateDir = AppSettings.sessionStateDirectory
+            try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+            let statePath = stateDir.path
+            engine = try await Task.detached { try Engine(downloadDir: downloadDir, stateDir: statePath) }.value
         } catch {
             logger.fault("failed to initialize torrent engine: \(String(describing: error), privacy: .public)")
             fatalError("Failed to initialize torrent engine: \(error)")

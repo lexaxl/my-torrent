@@ -34,6 +34,7 @@ FR11: The row's progress bar color reflects torrent state — standard accent wh
 FR12: Hovering the menu-bar icon (no click) shows a tooltip with aggregate download/upload speed across all active torrents.
 FR13: The app has a custom pump-icon visual identity — Dock/Finder app icon and a two-state (idle/active) menu-bar icon, replacing the default Xcode icon and generic SF Symbols.
 FR14: While running, the app shows its icon in the Dock as a regular macOS app (revises AD-7's accessory lifecycle): clicking the Dock icon with no windows open reopens the main window; quitting (Cmd+Q / Dock → Quit / menu-bar Quit) asks for confirmation only when unfinished downloads are in progress; closing all windows still never terminates the process.
+FR15: The torrent list survives an app restart — torrents reappear with their progress (no full re-hash), paused/active state, per-torrent output folder, and list order; the quit-confirmation dialog's text honestly reflects that downloads pause and resume on next launch.
 
 ### NonFunctional Requirements
 
@@ -42,7 +43,7 @@ NFR2: Runs on Apple Silicon (arm64) only, on the last 1-2 macOS versions — no 
 NFR3: Distributed as an unsigned build ($0 budget, no Apple Developer Program), with user-facing Gatekeeper-bypass instructions.
 NFR4: All UI copy follows the Tone of Voice: quiet, plain, native-standard phrasing — no exclamation marks/emoji, silence as default (no confirmation toasts for routine actions).
 NFR5: All Rust FFI calls execute off the main thread — blocking engine I/O must never freeze the SwiftUI main thread.
-NFR6: The app runs as an accessory app (`LSUIElement`) — it does not quit when all windows are closed; the menu bar is the persistent presence.
+NFR6: The app does not quit when all windows are closed — downloads keep running in the background. (Originally phrased as "accessory app (`LSUIElement`)"; Story 6.1 / FR14 revised AD-7 to a regular Dock app while keeping this core rule.)
 
 ### Additional Requirements (Architecture)
 
@@ -89,6 +90,7 @@ FR11: Epic 5 - progress bar state color
 FR12: Epic 5 - menu-bar hover tooltip
 FR13: Epic 5 - custom pump icon (app + menu-bar)
 FR14: Epic 6 - Dock icon while running (AD-7 revision)
+FR15: Epic 6 - session persistence (torrent list survives restart)
 NFR1-NFR6: cross-cutting, established in Epic 1 (engine/shell foundation per Architecture Spine AD-1 through AD-10), relied upon by all later epics
 
 ## Epic List
@@ -114,8 +116,8 @@ NFR1-NFR6: cross-cutting, established in Epic 1 (engine/shell foundation per Arc
 **FRs covered:** FR10, FR11, FR12, FR13
 
 ### Epic 6: Обычное поведение macOS-приложения
-Приложение перестаёт быть «невидимкой»: пока оно запущено, его иконка-насос видна в Dock и в Cmd+Tab, клик по иконке Dock открывает главное окно, а случайный Cmd+Q при идущих закачках перехватывается диалогом подтверждения. Пересматривает AD-7 (accessory lifecycle → regular app), сохраняя его ядро: закрытие всех окон никогда не завершает процесс, закачки продолжаются в фоне.
-**FRs covered:** FR14
+Приложение перестаёт быть «невидимкой»: пока оно запущено, его иконка-насос видна в Dock и в Cmd+Tab, клик по иконке Dock открывает главное окно, а случайный Cmd+Q при идущих закачках перехватывается диалогом подтверждения. Пересматривает AD-7 (accessory lifecycle → regular app), сохраняя его ядро: закрытие всех окон никогда не завершает процесс, закачки продолжаются в фоне. Вторая половина эпика — список торрентов переживает перезапуск приложения (librqbit session persistence + fastresume), так что выход перестаёт означать потерю закачек.
+**FRs covered:** FR14, FR15
 
 ---
 
@@ -410,3 +412,29 @@ So that I can see it's running, switch to it, and reopen its window the way I do
 **And** иконка меню-бара, тултип и popover не меняются — Dock и меню-бар сосуществуют
 **And** `ARCHITECTURE-SPINE.md` AD-7 переписан: accessory → regular app; правила «закрытие окон никогда не завершает процесс» и «не sandboxed» сохраняются; устаревший комментарий у Quit-кнопки в `MenuBarView` («единственный способ выйти») исправлен
 **And** строки диалога локализованы через существующий `.xcstrings`-паттерн
+
+### Story 6.2: Список торрентов переживает перезапуск (session persistence)
+
+As a user,
+I want my torrent list to survive quitting and relaunching the app,
+So that quitting never means losing my downloads or re-adding everything by hand.
+
+**Acceptance Criteria:**
+
+**Given** в списке есть торренты (качающиеся, на паузе, раздающиеся)
+**When** я выхожу из приложения и запускаю его снова
+**Then** все торренты снова в списке, в том же порядке (librqbit восстанавливает с `preferred_id` — id стабильны), с тем же прогрессом
+**And** перепроверка хэшей всего содержимого при старте НЕ выполняется (`fastresume: true` — bitfield скачанных кусков персистится в `.bitv`-файлах)
+**And** торрент, стоявший на паузе, после перезапуска по-прежнему на паузе (`SerializedTorrent.is_paused`)
+**And** per-torrent выходная папка сохраняется (`SerializedTorrent.output_folder` — включая подпапку от `resolve_output_folder`, Story 3.1)
+
+**Given** реализация
+**Then** `Engine::new` получает второй параметр `state_dir: String`; сессия создаётся через `Session::new_with_opts` с `persistence: Some(SessionPersistenceConfig::Json { folder: Some(state_dir) })` и `fastresume: true`
+**And** Swift (`AppModel.setUpEngine`) передаёт `~/Library/Application Support/MyTorrent/session`, создав каталог через `FileManager` до вызова `Engine::new`
+**And** новый Rust-тест: roundtrip персистентности (add в сессию с tempdir-persistence → пересоздать `Engine` с тем же state_dir → торрент восстановлен) — существующие тестовые конструкторы (`test_engine` и др.) продолжают работать БЕЗ persistence
+
+**Given** диалог подтверждения выхода (Story 6.1)
+**Then** его текст обновлён на честный: «Закачки приостановятся и продолжатся при следующем запуске. Завершить приложение?» (ru), "Downloads will pause and resume on next launch. Quit anyway?" (en) — заголовок и кнопки не меняются
+**And** комментарии в коде, ссылающиеся на «session has no persistence» (`TorrentEngineStatus.blocksQuit`, `applicationShouldTerminate`), актуализированы
+
+**Принятое ограничение (зафиксировать, не чинить):** magnet-ссылка, не успевшая отрезолвить метаданные к моменту выхода, не персистится (она ещё в client-side `pending`, не в сессии librqbit) — после перезапуска её нужно добавить заново.

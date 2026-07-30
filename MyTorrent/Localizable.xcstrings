@@ -586,13 +586,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quitting will interrupt them. Quit anyway?"
+            "value": "Downloads will pause and resume on next launch. Quit anyway?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Выход прервёт их. Завершить приложение?"
+            "value": "Закачки приостановятся и продолжатся при следующем запуске. Завершить приложение?"
           }
         }
       }

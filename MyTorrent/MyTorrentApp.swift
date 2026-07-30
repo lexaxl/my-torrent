@@ -69,11 +69,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // behind other apps' windows.
         AppModel.activateApp()
         // «Отмена» goes first: NSAlert's first button is the default (Return
-        // key), and the default of a data-loss confirmation must be the safe
-        // action (code review, Story 6.1) — a reflexive Return must not kill the
-        // very downloads this dialog exists to protect. No "will resume next
-        // launch" reassurance in the message on purpose: the session has no
-        // persistence (see `TorrentEngineStatus.blocksQuit`), interruption is real.
+        // key), and the default of a destructive confirmation must be the safe
+        // action (code review, Story 6.1) — a reflexive Return must not stop the
+        // very downloads this dialog exists to protect. The message promises
+        // resume-on-next-launch because since Story 6.2 that is literally true
+        // (session persistence + fastresume; see `TorrentEngineStatus.blocksQuit`).
         let response = Alerts.runWarning(
             title: String(localized: "quit_confirm.title"),
             message: String(localized: "quit_confirm.message"),

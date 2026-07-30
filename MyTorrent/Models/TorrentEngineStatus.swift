@@ -44,13 +44,24 @@ enum TorrentEngineStatus: String, Hashable {
     // `isActive`: seeding is "active" for polling and menu-bar purposes, but a
     // finished torrent seeds indefinitely, so counting it here would make the
     // quit dialog appear on almost every quit. Only genuinely unfinished work
-    // warrants the interruption warning — and it is a real interruption: the
-    // session has no persistence (librqbit `SessionOptions::default()`), so the
-    // torrent list does not survive an app restart.
+    // warrants the warning. Since Story 6.2 the session persists across
+    // restarts, so quitting pauses (not loses) these downloads — the dialog
+    // stays because stopping an in-flight download until some future launch
+    // is still worth one confirmation, and its text says exactly that.
+    //
+    // `.resolving` is deliberately EXCLUDED (Story 6.2 code review): an
+    // unresolved magnet lives only in the in-memory `pending` map (Story 1.2),
+    // never in librqbit's persisted session, so it is genuinely lost on quit —
+    // for which the dialog's "pause and resume on next launch" wording would be
+    // a lie. Rather than complicate the message for a sub-second window (the
+    // Scope Boundary already accepts that such a magnet is dropped on quit),
+    // an unresolved magnet simply doesn't block quit. Once it resolves into a
+    // real `.downloading`/`.checking` torrent it becomes persisted and blocks
+    // again, honestly.
     var blocksQuit: Bool {
         switch self {
-        case .downloading, .checking, .resolving: true
-        case .seeding, .paused, .error: false
+        case .downloading, .checking: true
+        case .seeding, .paused, .resolving, .error: false
         }
     }
 }

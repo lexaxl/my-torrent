@@ -4,6 +4,7 @@ mod types;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -14,7 +15,7 @@ use std::time::Instant;
 use librqbit::api::TorrentIdOrHash;
 use librqbit::{
     AddTorrent, AddTorrentOptions, Api, ByteBufOwned, ByteBufT, ManagedTorrent, Magnet, Session,
-    SessionOptions, TorrentStats, TorrentStatsState,
+    SessionOptions, SessionPersistenceConfig, TorrentStats, TorrentStatsState,
 };
 use librqbit_core::torrent_metainfo::torrent_from_bytes;
 use librqbit_core::Id20;
@@ -38,6 +39,51 @@ fn internal_error(message: impl std::fmt::Display) -> EngineError {
     EngineError::Internal {
         message: message.to_string(),
     }
+}
+
+/// The persistent-session options shared by production (`Engine::new`) and the
+/// persistence tests — the one place the `Json` persistence + `fastresume`
+/// combination is spelled out, so the two can't drift (code-review fix, Story
+/// 6.2). Tests additionally flip `disable_dht_persistence` on the returned
+/// struct for the same sandbox reason as `test_engine`.
+fn persistent_session_options(state_dir: PathBuf) -> SessionOptions {
+    SessionOptions {
+        persistence: Some(SessionPersistenceConfig::Json {
+            folder: Some(state_dir),
+        }),
+        fastresume: true,
+        ..Default::default()
+    }
+}
+
+/// True if the persistence store folder exists and holds at least one entry.
+/// A failure to open an *empty* store can't be store corruption (there's
+/// nothing in it), so the recovery path in `Engine::open_with_recovery` only
+/// quarantines a store that actually has contents to be corrupt.
+fn store_has_entries(state_dir: &Path) -> bool {
+    std::fs::read_dir(state_dir)
+        .map(|mut entries| entries.next().is_some())
+        .unwrap_or(false)
+}
+
+/// Renames a corrupt store folder aside to `<name>.corrupt-<unix-secs>` (a
+/// sibling of the original), preserving it for debugging rather than deleting
+/// it. Story 6.2 code review: a single unreadable persisted entry makes
+/// librqbit's restore fail the whole session open, which Swift turns into a
+/// `fatalError` — crash-looping the app on every launch until the user manually
+/// deletes this folder. Quarantining lets the next open start fresh instead.
+fn quarantine_store(state_dir: &Path) -> std::io::Result<()> {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let name = state_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("session");
+    let mut quarantined = state_dir.to_path_buf();
+    quarantined.set_file_name(format!("{name}.corrupt-{timestamp}"));
+    std::fs::rename(state_dir, &quarantined)
 }
 
 /// Computes the actual on-disk destination for a newly added `.torrent` file/bytes
@@ -211,18 +257,33 @@ pub struct Engine {
 #[uniffi::export]
 impl Engine {
     #[uniffi::constructor]
-    pub fn new(download_dir: String) -> Result<Arc<Self>, EngineError> {
-        let session = runtime()
-            .block_on(Session::new(download_dir.into()))
-            .map_err(internal_error)?;
-        let api = Api::new(session.clone(), None);
-        Ok(Arc::new(Self {
-            session,
-            pending: Arc::new(Mutex::new(HashMap::new())),
-            api,
-            next_pending_seq: AtomicU64::new(0),
-            peer_speed_baseline: Mutex::new(HashMap::new()),
-        }))
+    pub fn new(download_dir: String, state_dir: String) -> Result<Arc<Self>, EngineError> {
+        // Story 6.2 — session persistence: the torrent list survives app restarts.
+        // `Json { folder }` stores a session db + per-torrent `.torrent` bytes in
+        // `state_dir` (always passed explicitly by the shell — `folder: None`
+        // would silently use librqbit's own OS-branded config dir). `fastresume`
+        // additionally persists piece bitfields (`.bitv`) so a restart resumes
+        // without re-hashing everything on disk. Restore happens inside
+        // `new_with_opts` itself, re-adding each torrent with its persisted
+        // paused state, output folder, and stable id (`preferred_id`), and with
+        // `overwrite: true` — so restored torrents never hit the
+        // files-already-exist add failure. DHT persistence is a separate
+        // librqbit mechanism and stays at its default (on) here; tests disable
+        // it for sandbox reasons only (see `test_engine`).
+        //
+        // Opened through `open_with_recovery` so a single corrupt persisted
+        // entry can't crash-loop the app (code-review fix, Story 6.2 — see that
+        // helper).
+        let download_dir = PathBuf::from(download_dir);
+        let state_dir = PathBuf::from(state_dir);
+        Self::open_with_recovery(&state_dir, || {
+            runtime()
+                .block_on(Session::new_with_opts(
+                    download_dir.clone(),
+                    persistent_session_options(state_dir.clone()),
+                ))
+                .map_err(internal_error)
+        })
     }
 
     pub fn add_torrent(&self, source: TorrentSource, download_dir: String) -> Result<String, EngineError> {
@@ -486,6 +547,55 @@ impl Engine {
 }
 
 impl Engine {
+    /// Wraps a ready session in an `Engine` — the single construction site for
+    /// the struct's non-session fields, shared by production and every test
+    /// constructor (code-review fix, Story 6.2: this block was hand-copied four
+    /// times, so a new field silently missed in one of them was a live risk).
+    fn from_session(session: Arc<Session>) -> Arc<Self> {
+        let api = Api::new(session.clone(), None);
+        Arc::new(Self {
+            session,
+            pending: Arc::new(Mutex::new(HashMap::new())),
+            api,
+            next_pending_seq: AtomicU64::new(0),
+            peer_speed_baseline: Mutex::new(HashMap::new()),
+        })
+    }
+
+    /// Opens a persistent session, recovering from a corrupt store instead of
+    /// failing the whole launch (code-review fix, Story 6.2). `open` performs
+    /// the actual `Session::new_with_opts` (production and tests supply their
+    /// own options via this closure so the recovery logic is exercised the same
+    /// way in both). On the first failure, if — and only if — the store folder
+    /// actually has contents to be corrupt, it is quarantined aside
+    /// (`quarantine_store`) and `open` is retried once against a fresh, empty
+    /// store: a launch with an empty list beats an app that `fatalError`s on
+    /// every start (Swift `setUpEngine`) until the user hand-deletes the folder.
+    /// A failure on an empty store, a failed quarantine, or a second failure are
+    /// all genuine engine problems and surface the original error unchanged.
+    fn open_with_recovery(
+        state_dir: &Path,
+        open: impl Fn() -> Result<Arc<Session>, EngineError>,
+    ) -> Result<Arc<Self>, EngineError> {
+        match open() {
+            Ok(session) => Ok(Self::from_session(session)),
+            Err(first_err) => {
+                if !store_has_entries(state_dir) {
+                    return Err(first_err);
+                }
+                if quarantine_store(state_dir).is_err() {
+                    return Err(first_err);
+                }
+                // The quarantine renamed the folder away; recreate it empty in
+                // case librqbit won't (the Swift side created it before the
+                // first attempt, not this retry).
+                let _ = std::fs::create_dir_all(state_dir);
+                let session = open().map_err(|_| first_err)?;
+                Ok(Self::from_session(session))
+            }
+        }
+    }
+
     fn parse_id(id: &str) -> Result<TorrentIdOrHash, EngineError> {
         Id20::from_str(id)
             .map(TorrentIdOrHash::Hash)
@@ -690,6 +800,30 @@ mod tests {
         tempfile::tempdir().unwrap().keep().to_string_lossy().into_owned()
     }
 
+    /// The production persistence options plus `disable_dht_persistence` (same
+    /// sandbox reason as `test_engine`) — shared by `test_engine_with_persistence`
+    /// and the corrupt-store recovery test so both exercise the real
+    /// `persistent_session_options` block.
+    fn test_persistent_options(state_dir: &str) -> SessionOptions {
+        let mut opts = persistent_session_options(PathBuf::from(state_dir));
+        opts.disable_dht_persistence = true;
+        opts
+    }
+
+    /// Polls `probe` up to ~5s (250×20ms), returning as soon as it yields
+    /// `Some`. A bounded busy-wait for librqbit's background/async state
+    /// transitions that tests can't otherwise synchronize on (code-review
+    /// dedup, Story 6.2 — this loop was hand-rolled in five places).
+    fn wait_until<T>(mut probe: impl FnMut() -> Option<T>) -> Option<T> {
+        for _ in 0..250 {
+            if let Some(value) = probe() {
+                return Some(value);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        None
+    }
+
     fn test_engine() -> Arc<Engine> {
         // DHT persistence disabled: librqbit's default persistent DHT writes to a fixed
         // OS cache dir (not the per-test tempdir), which is unavailable in some sandboxed
@@ -709,14 +843,21 @@ mod tests {
                 },
             ))
             .unwrap();
-        let api = Api::new(session.clone(), None);
-        Arc::new(Engine {
-            session,
-            pending: Arc::new(Mutex::new(HashMap::new())),
-            api,
-            next_pending_seq: AtomicU64::new(0),
-            peer_speed_baseline: Mutex::new(HashMap::new()),
-        })
+        Engine::from_session(session)
+    }
+
+    fn test_engine_with_persistence(download_dir: &str, state_dir: &str) -> Arc<Engine> {
+        // Story 6.2 — mirrors the production `Engine::new` options (Json
+        // persistence + fastresume) but with `disable_dht_persistence` for the
+        // same sandbox reason as `test_engine`, and with caller-provided dirs
+        // so a test can recreate an Engine against the same state_dir.
+        let session = runtime()
+            .block_on(Session::new_with_opts(
+                PathBuf::from(download_dir),
+                test_persistent_options(state_dir),
+            ))
+            .unwrap();
+        Engine::from_session(session)
     }
 
     fn test_engine_no_peer_sources() -> Arc<Engine> {
@@ -734,14 +875,7 @@ mod tests {
                 },
             ))
             .unwrap();
-        let api = Api::new(session.clone(), None);
-        Arc::new(Engine {
-            session,
-            pending: Arc::new(Mutex::new(HashMap::new())),
-            api,
-            next_pending_seq: AtomicU64::new(0),
-            peer_speed_baseline: Mutex::new(HashMap::new()),
-        })
+        Engine::from_session(session)
     }
 
     #[test]
@@ -807,18 +941,16 @@ mod tests {
         // The background task fails almost immediately (no DHT/trackers/peers), but
         // it still runs on another thread — poll with a bounded wait instead of
         // asserting instantly.
-        let mut status = String::new();
-        for _ in 0..100 {
-            if let Some(torrent) = engine.get_all_torrents().into_iter().find(|t| t.id == id) {
-                status = torrent.status;
-                if status == "error" {
-                    break;
-                }
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
+        let status = wait_until(|| {
+            engine
+                .get_all_torrents()
+                .into_iter()
+                .find(|t| t.id == id)
+                .map(|t| t.status)
+                .filter(|s| s == "error")
+        });
 
-        assert_eq!(status, "error");
+        assert_eq!(status.as_deref(), Some("error"));
     }
 
     #[test]
@@ -873,18 +1005,14 @@ mod tests {
         // which shows this transition isn't deterministic in timing. Bounded
         // poll instead of asserting instantly (same pattern as the magnet
         // resolution-failure test below).
-        let mut checking_done = false;
-        for _ in 0..100 {
-            if engine
+        let checking_done = wait_until(|| {
+            engine
                 .get_all_torrents()
                 .into_iter()
                 .any(|t| t.id == id && t.status != "checking")
-            {
-                checking_done = true;
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
+                .then_some(())
+        })
+        .is_some();
         assert!(checking_done, "torrent never left the checking state");
 
         engine
@@ -920,6 +1048,166 @@ mod tests {
             .expect("remove_torrent should succeed for a known torrent");
 
         assert!(engine.get_all_torrents().is_empty());
+    }
+
+    #[test]
+    fn persisted_torrent_survives_engine_recreation() {
+        // Story 6.2 roundtrip: the same download_dir AND state_dir must be
+        // reused across both Engine incarnations — persistence restores each
+        // torrent into its persisted output folder, so a fresh download dir
+        // would break the on-disk file the bitfield refers to.
+        let download_dir = test_download_dir();
+        let state_dir = test_download_dir();
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
+
+        let first = test_engine_with_persistence(&download_dir, &state_dir);
+        let id = first
+            .add_torrent(
+                TorrentSource::Path {
+                    path: fixture.to_string(),
+                },
+                download_dir.clone(),
+            )
+            .expect("add_torrent should succeed for a valid .torrent file");
+        // Graceful shutdown so the store's writes are settled before the
+        // second session opens the same folder.
+        runtime().block_on(first.session.stop());
+        drop(first);
+
+        let second = test_engine_with_persistence(&download_dir, &state_dir);
+        // Restore happens inside `Session::new_with_opts`, but whether the
+        // torrents are already visible by the time it returns is a librqbit
+        // implementation detail — poll briefly instead of assuming.
+        let restored = wait_until(|| {
+            let all = second.get_all_torrents();
+            (!all.is_empty()).then_some(all)
+        })
+        .unwrap_or_default();
+        assert_eq!(
+            restored.len(),
+            1,
+            "persisted torrent was not restored by the second session"
+        );
+        // `preferred_id` on the restore path keeps ids stable across restarts —
+        // the app's list order (sorted by id, Story 1.2) depends on this.
+        assert_eq!(restored[0].id, id, "restored torrent id changed across restart");
+    }
+
+    #[test]
+    fn paused_state_survives_engine_recreation() {
+        // Story 6.2 AC3 — verified at the engine level because the UI's only
+        // pause affordance (the row context menu) drives this same
+        // `pause_torrent` call. Also the honest probe of WHEN librqbit writes
+        // `SerializedTorrent.is_paused`: if pausing didn't update the store,
+        // this test would catch the restored torrent running again.
+        let download_dir = test_download_dir();
+        let state_dir = test_download_dir();
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
+
+        let first = test_engine_with_persistence(&download_dir, &state_dir);
+        let id = first
+            .add_torrent(
+                TorrentSource::Path {
+                    path: fixture.to_string(),
+                },
+                download_dir.clone(),
+            )
+            .expect("add_torrent should succeed for a valid .torrent file");
+        // Same wait as the pause/resume test: pausing mid-"checking" is racy.
+        let checking_done = wait_until(|| {
+            first
+                .get_all_torrents()
+                .into_iter()
+                .any(|t| t.id == id && t.status != "checking")
+                .then_some(())
+        })
+        .is_some();
+        assert!(checking_done, "torrent never left the checking state");
+        first
+            .pause_torrent(id.clone())
+            .expect("pause_torrent should succeed for a known torrent");
+        runtime().block_on(first.session.stop());
+        drop(first);
+
+        let second = test_engine_with_persistence(&download_dir, &state_dir);
+        // Wait for the restored torrent to settle out of the transient
+        // checking/initializing phase, then assert its resting status is
+        // paused. Stopping at the first sample that merely reads "paused" could
+        // pass on a transient before the torrent settles into a running state
+        // (test-robustness fix, Story 6.2 review).
+        let status = wait_until(|| {
+            second
+                .get_all_torrents()
+                .into_iter()
+                .find(|t| t.id == id)
+                .filter(|t| t.status != "checking")
+                .map(|t| t.status)
+        })
+        .unwrap_or_default();
+        assert_eq!(
+            status, "paused",
+            "torrent paused before shutdown should be restored paused"
+        );
+    }
+
+    #[test]
+    fn corrupt_store_is_quarantined_and_engine_recovers() {
+        // Story 6.2 code review (CONFIRMED-high): a single unreadable persisted
+        // entry made `Session::new_with_opts` fail the whole open, which Swift
+        // turns into a `fatalError` — crash-looping the app on every launch
+        // until the user hand-deleted the store. `open_with_recovery` (the path
+        // production `Engine::new` funnels through) must quarantine the bad
+        // store aside and open a fresh session instead.
+        let download_dir = test_download_dir();
+        let state_dir = test_download_dir();
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.torrent");
+
+        // Seed a real store, then shut down cleanly so `session.json` is flushed.
+        let first = test_engine_with_persistence(&download_dir, &state_dir);
+        first
+            .add_torrent(
+                TorrentSource::Path {
+                    path: fixture.to_string(),
+                },
+                download_dir.clone(),
+            )
+            .expect("add_torrent should succeed for a valid .torrent file");
+        runtime().block_on(first.session.stop());
+        drop(first);
+
+        // Corrupt the session database so restore fails on the next open
+        // (`session.json` — librqbit `session_persistence/json.rs:42`).
+        let db = Path::new(&state_dir).join("session.json");
+        assert!(db.exists(), "store should contain session.json after an add");
+        std::fs::write(&db, b"}{ not valid json").unwrap();
+
+        let state_path = Path::new(&state_dir);
+        let engine = Engine::open_with_recovery(state_path, || {
+            runtime()
+                .block_on(Session::new_with_opts(
+                    PathBuf::from(&download_dir),
+                    test_persistent_options(&state_dir),
+                ))
+                .map_err(internal_error)
+        })
+        .expect("engine should recover from a corrupt store instead of failing");
+        assert!(
+            engine.get_all_torrents().is_empty(),
+            "recovered session should start with an empty list"
+        );
+
+        // The corrupt store was preserved aside (renamed), not deleted.
+        let base = state_path.file_name().unwrap().to_string_lossy().into_owned();
+        let quarantined_prefix = format!("{base}.corrupt-");
+        let has_quarantine = std::fs::read_dir(state_path.parent().unwrap())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with(&quarantined_prefix)
+            });
+        assert!(has_quarantine, "corrupt store should be quarantined, not deleted");
     }
 
     #[test]

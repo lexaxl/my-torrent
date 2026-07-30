@@ -650,12 +650,13 @@ open class Engine: EngineProtocol, @unchecked Sendable {
     public func uniffiCloneHandle() -> UInt64 {
         return try! rustCall { uniffi_engine_fn_clone_engine(self.handle, $0) }
     }
-public convenience init(downloadDir: String)throws  {
+public convenience init(downloadDir: String, stateDir: String)throws  {
     let handle =
         try rustCallWithError(FfiConverterTypeEngineError_lift) {
         uniffiCallStatus in
     uniffi_engine_fn_constructor_engine_new(
-        FfiConverterString.lower(downloadDir),uniffiCallStatus
+        FfiConverterString.lower(downloadDir),
+        FfiConverterString.lower(stateDir),uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -1449,7 +1450,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_engine_checksum_method_engine_reveal_path() != 12696) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_engine_checksum_constructor_engine_new() != 1538) {
+    if (uniffi_engine_checksum_constructor_engine_new() != 16559) {
         return InitializationResult.apiChecksumMismatch
     }
 

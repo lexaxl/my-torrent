@@ -27,6 +27,24 @@ enum AppSettings {
             ?? NSString(string: "~/Downloads").expandingTildeInPath
     }
 
+    // Story 6.2: librqbit's session-persistence store. Deliberately under
+    // Application Support (NOT the user-changeable download folder), so the
+    // torrent list survives restarts regardless of where the save location
+    // points. Derivation only — the caller (`AppModel.setUpEngine`) creates the
+    // directory and owns the failure path. Two separate path components (not a
+    // single "MyTorrent/session" string) so each is escaped as its own dir
+    // (code-review polish, Story 6.2).
+    static var sessionStateDirectory: URL {
+        let base = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSString(string: "~/Library/Application Support").expandingTildeInPath,
+                   isDirectory: true)
+        return base
+            .appendingPathComponent("MyTorrent", isDirectory: true)
+            .appendingPathComponent("session", isDirectory: true)
+    }
+
     static let defaultSeedDurationHours = 8
     static let seedDurationHoursRange = 1...168
 
