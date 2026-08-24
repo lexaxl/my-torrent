@@ -3,7 +3,12 @@
 # Version: 6.10.0
 # Date: 2026-07-26T20:39:40.286Z
 
-project_knowledge: "{project-root}/docs"
+# ВРУЧНУЮ ИЗМЕНЕНО (не установщиком): project_knowledge уведён из docs/,
+# потому что docs/ — корень GitHub Pages и всё записанное туда публикуется.
+# Дубль этого значения закреплён в _bmad/custom/config.toml (слой, который
+# переустановка не трогает). Этот файл установщик перезапишет — после
+# переустановки BMAD строку ниже нужно вернуть вручную.
+project_knowledge: "{project-root}/_bmad-output/project-knowledge"
 project_type: digital_product
 design_artifacts: "{project-root}/design-artifacts"
 design_system_mode: none

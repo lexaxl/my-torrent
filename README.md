@@ -70,7 +70,7 @@ xcodebuild -project MyTorrent.xcodeproj -scheme MyTorrent -configuration Debug b
 
 ### Конфигурация
 
-Настройки лежат в трёх слоях, каждый следующий переопределяет предыдущий:
+Настройки лежат в четырёх слоях, каждый следующий переопределяет предыдущий (скаляры затираются, таблицы сливаются вглубь):
 
 | Файл | Кто владеет | В git |
 |---|---|---|
@@ -79,7 +79,7 @@ xcodebuild -project MyTorrent.xcodeproj -scheme MyTorrent -configuration Debug b
 | `_bmad/custom/config.toml` | человек, командные пины и кастомные агенты | да |
 | `_bmad/custom/config.user.toml` | человек, личные пины | нет (gitignored) |
 
-Ключевые значения этого проекта:
+Эффективные значения после слияния слоёв — их печатает `_bmad/scripts/resolve_config.py --project-root . --key modules` (нужен Python 3.11+ ради `tomllib`):
 
 ```toml
 [core]
@@ -90,7 +90,7 @@ output_folder            = "{project-root}/_bmad-output"
 [modules.bmm]
 planning_artifacts       = "{project-root}/_bmad-output/planning-artifacts"
 implementation_artifacts = "{project-root}/_bmad-output/implementation-artifacts"
-project_knowledge        = "{project-root}/docs"
+project_knowledge        = "{project-root}/_bmad-output/project-knowledge"  # переопределено
 
 [modules.wds]
 design_artifacts   = "{project-root}/design-artifacts"
@@ -102,7 +102,16 @@ product_languages  = ["en", "ru"]
 
 Плюс личный слой: `user_name = "Alex"`, `communication_language = "Russian"` (диалог по-русски), `user_skill_level = "beginner"` — это влияет на то, насколько подробно скиллы объясняют свои шаги.
 
-> **Осторожно при добавлении документов.** `project_knowledge` указывает на `docs/`, и эта же папка настроена корнем GitHub Pages. Всё, что харнес запишет в `docs/`, автоматически окажется на публичном сайте.
+Единственное место, где значения отличаются от установочных, — `project_knowledge`. Установщик по умолчанию ставит его в `{project-root}/docs`, но эта же папка настроена корнем GitHub Pages: любой документ, записанный туда харнесом, молча оказался бы на публичном сайте. Поэтому он уведён в `_bmad-output/project-knowledge`, рядом с остальными артефактами.
+
+Правка нужна в двух местах — у харнеса два параллельных механизма чтения настроек:
+
+| Где | Кто читает | Переживает переустановку |
+|---|---|---|
+| `_bmad/custom/config.toml` | 5 скиллов из 74 — те, что идут через `resolve_config.py` | да, слой `custom/` установщик не трогает |
+| `_bmad/bmm/config.yaml`, `_bmad/wds/config.yaml` | 60 скиллов из 74 — они читают YAML своего модуля напрямую | **нет**, файлы генерируются установщиком |
+
+> После переустановки BMAD значение в двух `config.yaml` придётся вернуть руками — в самих файлах на этом месте стоит комментарий-напоминание.
 
 ### Агенты и роли
 
@@ -150,13 +159,14 @@ _bmad-output/
     deferred-work.md                отложенное с адресом: откуда пришло и почему
     epic-6-retro-2026-07-30.md      ретроспектива
   test-artifacts/                   пусто
+  project-knowledge/                пусто (уведено сюда из docs/, см. «Конфигурация»)
 design-artifacts/                   WDS-трэк, фазы A–E
   A-Product-Brief/                  бриф + полный лог диалога, из которого он вырос
   B-Trigger-Map/                    бизнес-цели → психология пользователя
   C-UX-Scenarios/                   4 сценария, спеки экранов, ASCII-скетчи
   D-Design-System/                  визуальные решения + HTML-прототип
   E-Development/                    передача в разработку: delivery + тест-сценарии
-docs/                               project_knowledge и корень GitHub Pages
+docs/                               только сайт: корень GitHub Pages
 ```
 
 Ключевой документ — `ARCHITECTURE-SPINE.md`. Это не описание системы, а список инвариантов, которым код обязан подчиняться: 10 архитектурных решений от AD-1 (single-process embedded core) до AD-10 (CI-сборка, релиз без подписи). Истории ссылаются на них по номеру, и отступление от AD — повод переписать AD, а не тихо обойти его в коде.

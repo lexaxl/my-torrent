@@ -5,3 +5,23 @@
 #
 # [agents.bmad-agent-pm]
 # description = "Prefers short, bulleted PRDs over narrative drafts."
+
+# ─────────────────────────────────────────────────────────────────
+# Разводим project_knowledge и корень GitHub Pages.
+#
+# Установщик по умолчанию ставит project_knowledge = {project-root}/docs.
+# В этом репозитории docs/ — корень GitHub Pages (Settings → Pages →
+# Deploy from a branch: main, папка /docs), поэтому любой документ,
+# записанный харнесом в docs/, автоматически публиковался бы на
+# https://lexaxl.github.io/my-torrent/.
+#
+# Переносим вывод project_knowledge в общее дерево артефактов, рядом с
+# planning-artifacts / implementation-artifacts / test-artifacts.
+# Этот слой переустановка BMAD не трогает — значение переживёт её.
+# ─────────────────────────────────────────────────────────────────
+
+[modules.bmm]
+project_knowledge = "{project-root}/_bmad-output/project-knowledge"
+
+[modules.wds]
+project_knowledge = "{project-root}/_bmad-output/project-knowledge"
