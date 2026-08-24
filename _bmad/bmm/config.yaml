@@ -6,7 +6,12 @@
 user_skill_level: beginner
 planning_artifacts: "{project-root}/_bmad-output/planning-artifacts"
 implementation_artifacts: "{project-root}/_bmad-output/implementation-artifacts"
-project_knowledge: "{project-root}/docs"
+# ВРУЧНУЮ ИЗМЕНЕНО (не установщиком): project_knowledge уведён из docs/,
+# потому что docs/ — корень GitHub Pages и всё записанное туда публикуется.
+# Дубль этого значения закреплён в _bmad/custom/config.toml (слой, который
+# переустановка не трогает). Этот файл установщик перезапишет — после
+# переустановки BMAD строку ниже нужно вернуть вручную.
+project_knowledge: "{project-root}/_bmad-output/project-knowledge"
 
 # Core Configuration Values
 user_name: Alex
