@@ -45,4 +45,5 @@ xcodebuild -project MyTorrent.xcodeproj -scheme MyTorrent -configuration Debug b
 - [Полная версия](https://lexaxl.github.io/my-torrent/presentations/pipeline-full.html) — 14 слайдов
 - [Короткая версия](https://lexaxl.github.io/my-torrent/presentations/pipeline-short.html) — 11 слайдов
 
+Обе версии с послайдовым оглавлением — на [странице презентаций](https://lexaxl.github.io/my-torrent/).
 Слайды листаются стрелками / пробелом. Исходники — в [`docs/presentations/`](docs/presentations/).
