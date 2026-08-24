@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Конвейер, а не промпт</title>
+<style>
+  /* ---------- tokens: light is the base, both themes redefined below ---------- */
+  :root {
+    --ground: #ECECF2;
+    --surface: #FFFFFF;
+    --surface-2: #F4F4F9;
+    --ink: #16161E;
+    --ink-2: #474756;
+    --muted: #757586;
+    --hairline: #D8D8E4;
+    --hairline-strong: #C2C2D2;
+    --accent: #4C5FD5;
+    --accent-ink: #3A4BB8;
+    --accent-soft: rgba(76, 95, 213, 0.10);
+    --success: #1F9254;
+    --warning: #B7791F;
+    --danger: #B3352F;
+    --shadow: 0 1px 2px rgba(22, 22, 30, 0.06), 0 8px 24px rgba(22, 22, 30, 0.05);
+
+    --serif: ui-serif, "New York", "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Mono", monospace;
+
+    --pad: clamp(1.5rem, 4.5vw, 5rem);
+    --maxw: 1080px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0F0F14;
+      --surface: #191921;
+      --surface-2: #20202B;
+      --ink: #E9E9F1;
+      --ink-2: #BCBCCB;
+      --muted: #8A8A9C;
+      --hairline: #2B2B37;
+      --hairline-strong: #3A3A49;
+      --accent: #7C8CF0;
+      --accent-ink: #9AA6F5;
+      --accent-soft: rgba(124, 140, 240, 0.14);
+      --success: #3FB873;
+      --warning: #D2A245;
+      --danger: #E06C64;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px rgba(0, 0, 0, 0.3);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0F0F14;
+    --surface: #191921;
+    --surface-2: #20202B;
+    --ink: #E9E9F1;
+    --ink-2: #BCBCCB;
+    --muted: #8A8A9C;
+    --hairline: #2B2B37;
+    --hairline-strong: #3A3A49;
+    --accent: #7C8CF0;
+    --accent-ink: #9AA6F5;
+    --accent-soft: rgba(124, 140, 240, 0.14);
+    --success: #3FB873;
+    --warning: #D2A245;
+    --danger: #E06C64;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px rgba(0, 0, 0, 0.3);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- deck shell ---------- */
+  .deck {
+    height: 100svh;
+    overflow-y: auto;
+    scroll-snap-type: y mandatory;
+    scroll-behavior: smooth;
+  }
+  .slide {
+    min-height: 100svh;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: clamp(4rem, 9vh, 6rem) var(--pad) clamp(3.5rem, 8vh, 5rem);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .slide > .inner {
+    width: 100%;
+    max-width: var(--maxw);
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(1.1rem, 2.4vh, 1.9rem);
+  }
+
+  /* ---------- chrome ---------- */
+  .chrome {
+    position: fixed;
+    inset: 0 0 auto 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.9rem var(--pad);
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: color-mix(in srgb, var(--ground) 84%, transparent);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--hairline);
+    z-index: 10;
+    pointer-events: none;
+  }
+  .chrome .mark { color: var(--ink-2); }
+  .chrome .mark b { color: var(--accent); font-weight: 600; }
+  .counter { font-variant-numeric: tabular-nums; }
+  .rail {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    height: 2px;
+    width: 100%;
+    background: var(--hairline);
+    z-index: 10;
+  }
+  .rail > i {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: var(--accent);
+    transition: width 0.25s ease;
+  }
+  .hint {
+    position: fixed;
+    right: var(--pad);
+    bottom: 1rem;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    z-index: 10;
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+  }
+
+  /* ---------- typography ---------- */
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .eyebrow::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--hairline);
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.6rem, 6.5vw, 4.6rem);
+    line-height: 1.02;
+    letter-spacing: -0.02em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(1.6rem, 3.4vw, 2.5rem);
+    line-height: 1.12;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h3 {
+    font-size: 0.98rem;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -0.005em;
+  }
+  p { margin: 0; max-width: 62ch; }
+  .lead {
+    font-size: clamp(1.02rem, 1.5vw, 1.22rem);
+    color: var(--ink-2);
+    max-width: 58ch;
+  }
+  .small { font-size: 0.86rem; color: var(--muted); max-width: 68ch; }
+  strong { font-weight: 600; color: var(--ink); }
+  code, .m {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    color: var(--accent-ink);
+  }
+
+  /* ---------- components ---------- */
+  .grid { display: grid; gap: clamp(0.7rem, 1.6vw, 1.1rem); }
+  .g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    padding: clamp(0.9rem, 1.8vw, 1.25rem);
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    box-shadow: var(--shadow);
+  }
+  .card .tag {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .card p { font-size: 0.9rem; color: var(--ink-2); }
+
+  .stat {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    padding: clamp(0.8rem, 1.6vw, 1.1rem);
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .stat b {
+    font-family: var(--serif);
+    font-size: clamp(1.5rem, 3.2vw, 2.1rem);
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat span {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  ul.list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.55rem; }
+  ul.list > li {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.7rem;
+    align-items: baseline;
+    font-size: 0.94rem;
+    color: var(--ink-2);
+  }
+  ul.list > li::before {
+    content: "—";
+    font-family: var(--mono);
+    color: var(--accent);
+  }
+  ul.list.check > li::before { content: "✓"; color: var(--success); }
+  ul.list.warn > li::before { content: "!"; color: var(--warning); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .chip {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    padding: 0.28rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--hairline-strong);
+    color: var(--ink-2);
+    background: var(--surface);
+    white-space: nowrap;
+  }
+  .chip.on { border-color: transparent; background: var(--accent-soft); color: var(--accent-ink); }
+
+  /* architecture stack */
+  .stack { display: flex; flex-direction: column; gap: 0.4rem; }
+  .band {
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 0.85rem 1.1rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.3rem 0.9rem;
+  }
+  .band .who { font-weight: 600; font-size: 0.95rem; }
+  .band .what { font-size: 0.86rem; color: var(--muted); }
+  .band.core { border-left: 3px solid var(--accent); }
+  .band.bound { border-left: 3px solid var(--warning); background: var(--surface-2); }
+  .band.shell { border-left: 3px solid var(--success); }
+  .flow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    text-align: center;
+    letter-spacing: 0.06em;
+  }
+
+  /* pipeline rails */
+  .rail-row { display: flex; flex-direction: column; gap: 0.5rem; }
+  .rail-row .rail-label {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .steps { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0.35rem; }
+  .step {
+    flex: 1 1 120px;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    padding: 0.6rem 0.7rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+  }
+  .step .n {
+    font-family: var(--mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .step .t { font-size: 0.86rem; font-weight: 600; line-height: 1.25; }
+  .step.loop { border-color: var(--accent); background: var(--accent-soft); }
+  .step.loop .n { color: var(--accent-ink); }
+
+  /* review findings */
+  .find {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.55rem 0.85rem;
+    align-items: start;
+    padding: 0.75rem 0;
+    border-top: 1px solid var(--hairline);
+  }
+  .find:first-of-type { border-top: none; }
+  .sev {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.22rem 0.45rem;
+    border-radius: 4px;
+    white-space: nowrap;
+    color: var(--surface);
+    background: var(--muted);
+  }
+  .sev.high { background: var(--danger); }
+  .sev.med { background: var(--warning); }
+  .sev.ref { background: transparent; color: var(--muted); border: 1px solid var(--hairline-strong); }
+  .find .body { font-size: 0.92rem; color: var(--ink-2); }
+  .find .body b { display: block; color: var(--ink); }
+
+  .split { display: grid; grid-template-columns: 1.05fr 1fr; gap: clamp(1rem, 3vw, 2.4rem); align-items: start; }
+
+  .quote {
+    border-left: 2px solid var(--accent);
+    padding-left: 1rem;
+    font-family: var(--serif);
+    font-size: clamp(1.05rem, 1.8vw, 1.35rem);
+    line-height: 1.4;
+    color: var(--ink);
+    max-width: 52ch;
+  }
+
+  .kv { display: flex; flex-direction: column; gap: 0; }
+  .kv > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.5rem 0;
+    border-top: 1px solid var(--hairline);
+    font-size: 0.9rem;
+  }
+  .kv > div:first-child { border-top: none; }
+  .kv .k { color: var(--muted); }
+  .kv .v { font-family: var(--mono); font-size: 0.82rem; color: var(--ink); text-align: right; }
+
+  /* ---------- motion ---------- */
+  [data-anim] {
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+  }
+  .is-active [data-anim] { opacity: 1; transform: none; }
+  .is-active [data-anim]:nth-child(2) { transition-delay: 0.06s; }
+  .is-active [data-anim]:nth-child(3) { transition-delay: 0.12s; }
+  .is-active [data-anim]:nth-child(4) { transition-delay: 0.18s; }
+  .is-active [data-anim]:nth-child(5) { transition-delay: 0.24s; }
+  .is-active [data-anim]:nth-child(6) { transition-delay: 0.30s; }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .deck { scroll-behavior: auto; }
+    [data-anim] { opacity: 1; transform: none; transition: none; }
+    .rail > i { transition: none; }
+  }
+
+  @media (max-width: 760px) {
+    .g3, .g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .split { grid-template-columns: 1fr; }
+    .slide { justify-content: flex-start; }
+  }
+  @media (max-width: 460px) {
+    .g2, .g3, .g4 { grid-template-columns: 1fr; }
+    .hint { display: none; }
+  }
+</style>
+</head>
+<body>
+<header class="chrome">
+  <span class="mark"><b>my-torrent</b> — BMAD</span>
+  <span class="counter" id="counter">01 / 11</span>
+</header>
+<div class="rail"><i id="railFill"></i></div>
+<div class="hint" id="hint">↓ / space</div>
+
+<main class="deck" id="deck">
+
+  <!-- 1 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>соло-проект · пять дней</div>
+      <h1 data-anim>Торрент-клиент,<br>собранный конвейером</h1>
+      <p class="lead" data-anim>Нативное macOS-приложение, пройденное от «хочу торрент-качалку» до релизного тега целиком по харнесу BMAD. Ни одной строчки кода без предшествующего ей документа.</p>
+      <div class="chips" data-anim>
+        <span class="chip on">BMAD</span>
+        <span class="chip on">WDS</span>
+        <span class="chip">Rust</span>
+        <span class="chip">SwiftUI</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Идея харнеса</div>
+      <h2 data-anim>Не промпт, а конвейер артефактов</h2>
+      <p class="lead" data-anim>Каждый шаг разработки — отдельная процедура со своим входным и выходным документом. Документ предыдущей фазы становится контрактом для следующей: агент не «помнит» решения, он их <strong>читает</strong>.</p>
+      <div class="rail-row" data-anim>
+        <div class="steps">
+          <div class="step"><span class="n">продукт</span><span class="t">Бриф</span></div>
+          <div class="step"><span class="n">ux</span><span class="t">Сценарии и экраны</span></div>
+          <div class="step"><span class="n">архитектура</span><span class="t">Обратная сторона решений</span></div>
+          <div class="step"><span class="n">план</span><span class="t">Эпики и истории</span></div>
+          <div class="step loop"><span class="n">цикл</span><span class="t">Реализация → ревью → коммит</span></div>
+          <div class="step"><span class="n">итог</span><span class="t">Ретроспектива</span></div>
+        </div>
+      </div>
+      <p class="small" data-anim>Цикл справа повторяется на каждой истории. Всё, что слева, пишется один раз и дальше только уточняется.</p>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Харнес</div>
+      <h2 data-anim>Харнес живёт в репозитории, а не в чате</h2>
+      <p class="lead" data-anim>Установка кладёт в проект набор скиллов и один конфиг. Скиллы — это версионируемые файлы рядом с кодом: их видно в диффе, их можно править под проект, они одинаково работают в любой сессии и у любого агента.</p>
+      <div class="grid g2" data-anim>
+        <div class="card"><span class="tag">скиллы</span><h3>Процедуры фаз</h3><p>Папка с инструкциями и шаблонами документов — по одной на каждый шаг разработки.</p></div>
+        <div class="card"><span class="tag">конфиг</span><h3>Общие настройки</h3><p>Задаются один раз: язык документов, куда складывать выход, какие модули включены.</p></div>
+        <div class="card"><span class="tag">выход</span><h3>Отдельная папка артефактов</h3><p>Планирование не смешано с кодом: документы лежат своим деревом и переживают любую переустановку.</p></div>
+        <div class="card"><span class="tag">команды</span><h3>Вызов по имени</h3><p>Фаза запускается явной командой, а не намёком в переписке — начало и конец шага видны.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Харнес</div>
+      <h2 data-anim>Четыре модуля под разные слои работы</h2>
+      <p class="lead" data-anim>Харнес собран из независимых модулей. Включаются те, что нужны проекту: на маленьком можно оставить один, на большом подключить все.</p>
+      <div class="grid g4" data-anim>
+        <div class="card"><span class="tag">каркас</span><h3>Общая база</h3><p>Конфиг, язык вывода, брейншторминг, ретроспективы — то, чем пользуются остальные модули.</p></div>
+        <div class="card"><span class="tag">метод</span><h3>Разработка</h3><p>Основной путь: требования → архитектура → эпики → истории → реализация → ревью.</p></div>
+        <div class="card"><span class="tag">дизайн</span><h3>Продукт и UX</h3><p>Отдельный трэк: кто пользователь, какие сценарии, как выглядят экраны, дизайн-система.</p></div>
+        <div class="card"><span class="tag">качество</span><h3>Тест-архитектура</h3><p>Тест-стратегия, трассировка требований, аудит нефункциональных свойств.</p></div>
+      </div>
+      <p class="small" data-anim>В этом проекте всерьёз работали первые три. Тест-модуль почти не задействован — и это осознанный выбор, а не забытый шаг.</p>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Харнес</div>
+      <h2 data-anim>Как устроена одна фаза</h2>
+      <p class="lead" data-anim>Фаза — это не «подумай над X». Это процедура с фиксированной формой: что читать на входе, какие вопросы задать человеку, по какому шаблону писать выход и когда считать шаг законченным.</p>
+      <div class="grid g4" data-anim>
+        <div class="card"><span class="tag">вход</span><h3>Документы прошлых фаз</h3><p>Читаются целиком, а не пересказываются по памяти.</p></div>
+        <div class="card"><span class="tag">диалог</span><h3>Вопросы по списку</h3><p>Развилки уходят человеку выбором из вариантов, а не угадываются.</p></div>
+        <div class="card"><span class="tag">выход</span><h3>Документ по шаблону</h3><p>Одна и та же структура каждый раз — её умеет читать следующая фаза.</p></div>
+        <div class="card"><span class="tag">приёмка</span><h3>Условие завершения</h3><p>Явный чек-лист: чего в документе не хватает, чтобы шаг закрыть.</p></div>
+      </div>
+      <p class="small" data-anim>Побочный эффект формы: любой шаг можно переиграть в одиночку. Переписать одну фазу дешевле, чем распутывать длинную переписку.</p>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Роли</div>
+      <h2 data-anim>Смена скилла — это смена точки зрения</h2>
+      <p class="lead" data-anim>Каждая фаза активируется своей персоной: со своим чек-листом, форматом выхода и границей ответственности. Это не ролевая игра ради атмосферы — архитектор не пишет истории, разработчик не переписывает архитектуру.</p>
+      <div class="grid g3" data-anim>
+        <div class="card"><span class="tag">аналитик</span><h3>Зачем и для кого</h3><p>Что болит у пользователя и чего мы точно не делаем.</p></div>
+        <div class="card"><span class="tag">ux</span><h3>Как это выглядит</h3><p>Сценарии, экраны, дизайн-система.</p></div>
+        <div class="card"><span class="tag">архитектор</span><h3>Чему обязан подчиняться код</h3><p>Инварианты системы, зафиксированные до реализации.</p></div>
+        <div class="card"><span class="tag">продукт</span><h3>В каком порядке строим</h3><p>Эпики, истории, карта покрытия требований.</p></div>
+        <div class="card"><span class="tag">разработчик</span><h3>Одна история за проход</h3><p>Реализация с отчётом о том, что реально произошло.</p></div>
+        <div class="card"><span class="tag">ревьюер</span><h3>Что здесь сломается</h3><p>Независимый враждебный проход по каждой истории.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Харнес на практике</div>
+      <h2 data-anim>Два трэка и осознанные пропуски</h2>
+      <div class="split">
+        <div class="rail-row" data-anim>
+          <span class="rail-label">Продукт и дизайн</span>
+          <div class="steps">
+            <div class="step"><span class="n">старт</span><span class="t">Настройка проекта</span></div>
+            <div class="step"><span class="n">бриф</span><span class="t">Кто и зачем</span></div>
+            <div class="step"><span class="n">ux</span><span class="t">Сценарии</span></div>
+            <div class="step"><span class="n">ux</span><span class="t">Спеки экранов</span></div>
+            <div class="step"><span class="n">выдача</span><span class="t">Передача в разработку</span></div>
+          </div>
+          <span class="rail-label" style="margin-top:0.6rem">Архитектура и реализация</span>
+          <div class="steps">
+            <div class="step"><span class="n">архитектура</span><span class="t">Инварианты</span></div>
+            <div class="step"><span class="n">план</span><span class="t">Эпики</span></div>
+            <div class="step loop"><span class="n">на каждую историю</span><span class="t">Написать → сделать → отревьюить → закоммитить</span></div>
+            <div class="step"><span class="n">на каждый эпик</span><span class="t">Ретроспектива</span></div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:0.9rem" data-anim>
+          <p class="lead">Дизайн-трэк отдаёт разработке готовую передачу, а не пожелания. Дальше всё идёт одним повторяющимся циклом.</p>
+          <ul class="list warn">
+            <li>Часть фаз пропущена сознательно: стратегический контекст свёрнут в бриф, роль большого требовательного документа сыграла связка «бриф + передача от дизайна».</li>
+            <li>Каждое отступление от процедуры записано в лог — чтобы отличать адаптацию от забывчивости.</li>
+          </ul>
+          <p class="small">Харнес адаптируют под масштаб задачи, а не исполняют ритуально. Но адаптацию тоже фиксируют документом.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Что построили</div>
+      <h2 data-anim>Тихий торрент-клиент, который не мешает</h2>
+      <div class="split">
+        <div style="display:flex;flex-direction:column;gap:1rem" data-anim>
+          <p class="lead">Минималистичная качалка для macOS: торрент открывается без единого диалога, живой список закачек, иконка в меню-баре, уведомление о завершении. Главное требование — почти нулевой расход ресурсов в простое.</p>
+          <p class="small">Роадмап закрыт полностью: все запланированные истории сделаны, версия выпущена.</p>
+        </div>
+        <div class="stack" data-anim>
+          <div class="band shell"><span class="who">SwiftUI</span><span class="what">весь интерфейс, никакой торрент-логики</span></div>
+          <div class="flow">↓ вызовы &nbsp;·&nbsp; ↑ снимок состояния</div>
+          <div class="band bound"><span class="who">Граница</span><span class="what">биндинги генерируются, руками не правятся</span></div>
+          <div class="flow">↓ &nbsp;·&nbsp; ↑</div>
+          <div class="band core"><span class="who">Rust-ядро</span><span class="what">весь BitTorrent и всё состояние сессии</span></div>
+        </div>
+      </div>
+      <p class="small" data-anim>Одна граница, ноль домена в интерфейсе. Один процесс — никаких фоновых демонов.</p>
+    </div>
+  </section>
+
+  <!-- 9 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Ключевая идея 1</div>
+      <h2 data-anim>Архитектура запрещает, а не описывает</h2>
+      <p class="lead" data-anim>Архитектурный документ — не пересказ системы, а список инвариантов. Каждое решение отвечает на три вопроса, и средний — самый ценный.</p>
+      <div class="grid g3" data-anim>
+        <div class="card"><span class="tag">область</span><h3>На что распространяется</h3><p>Где именно правило обязано соблюдаться.</p></div>
+        <div class="card"><span class="tag">предотвращает</span><h3>Какую ошибку снимает</h3><p>Ровно то, что разработчик сделал бы по умолчанию, не зная контекста.</p></div>
+        <div class="card"><span class="tag">правило</span><h3>Проверяемая формулировка</h3><p>На неё можно сослаться в истории и в ревью.</p></div>
+      </div>
+      <p class="quote" data-anim>Документ, который нельзя изменить, через две недели перестаёт описывать систему. Тот, который меняют без следа, перестаёт быть аргументом.</p>
+      <p class="small" data-anim>Поэтому отменённые решения не стираются: рядом остаётся пометка, когда и почему их пересмотрели.</p>
+    </div>
+  </section>
+
+  <!-- 10 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Ключевая идея 2</div>
+      <h2 data-anim>Контекст живёт в файлах, а не в памяти агента</h2>
+      <p class="lead" data-anim>Исполнитель каждый раз стартует с чистой памятью. Значит, всё, что нужно для правильной работы с первого раза, должно лежать в тексте задачи — и всё, что пошло не так, должно вернуться туда же.</p>
+      <div class="grid g2" data-anim>
+        <div class="card"><span class="tag">на входе</span><h3>История как пакет контекста</h3><p>Проверяемые критерии приёмки, выписанные факты о чужом коде, грабли предыдущей истории и явная граница того, что мы осознанно не чиним.</p></div>
+        <div class="card"><span class="tag">на выходе</span><h3>Честный отчёт об отклонениях</h3><p>Где план разошёлся с реальностью и что осталось непроверенным. Признание непроверенного — главная функция отчёта, а не его слабость.</p></div>
+        <div class="card"><span class="tag">ревью</span><h3>Опровергнутое тоже записывается</h3><p>Отсеянная гипотеза помечается «не переоткрывать» — следующая сессия не тратит время заново.</p></div>
+        <div class="card"><span class="tag">долг</span><h3>У каждого «потом» есть адрес</h3><p>Что отложено, почему это допустимо сейчас и при каком условии вернуться.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Итог</div>
+      <h2 data-anim>Что подход дал и чего он стоил</h2>
+      <div class="split">
+        <div data-anim>
+          <div class="eyebrow" style="margin-bottom:0.8rem">Дал</div>
+          <ul class="list check">
+            <li>Роадмап закрыт за пять дней без переписывания архитектуры.</li>
+            <li>Ревью поймало баги, которые проявились бы только у пользователя.</li>
+            <li>Решения переживают границы сессий.</li>
+            <li>Спорные развилки уходили человеку выбором, а не угадывались.</li>
+          </ul>
+        </div>
+        <div data-anim>
+          <div class="eyebrow" style="margin-bottom:0.8rem">Стоил</div>
+          <ul class="list warn">
+            <li>Документов заметно больше, чем кода — на мелком проекте это чистые накладные расходы.</li>
+            <li>Ритуал приходится адаптировать, а не исполнять целиком.</li>
+            <li>Проверка нативного интерфейса осталась ручной.</li>
+            <li>Реализация думает про happy-path; поломки всплывают только на ревью.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="quote" data-anim>Ценность харнеса не в персонах и не в шаблонах, а в том, что каждое решение получает адрес — файл, строку и причину, на которые можно сослаться через неделю и через сто коммитов.</p>
+    </div>
+  </section>
+
+</main>
+<script>
+  (function () {
+    var deck = document.getElementById('deck');
+    var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+    var counter = document.getElementById('counter');
+    var railFill = document.getElementById('railFill');
+    var hint = document.getElementById('hint');
+    var current = 0;
+
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+
+    function setCurrent(i) {
+      current = i;
+      counter.textContent = pad(i + 1) + ' / ' + pad(slides.length);
+      railFill.style.width = ((i + 1) / slides.length * 100) + '%';
+      if (hint) hint.style.opacity = i === 0 ? '1' : '0';
+    }
+
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-active');
+          setCurrent(slides.indexOf(entry.target));
+        }
+      });
+    }, { threshold: 0.5 });
+
+    slides.forEach(function (s) { io.observe(s); });
+    setCurrent(0);
+    slides[0].classList.add('is-active');
+
+    function go(delta) {
+      var next = Math.min(slides.length - 1, Math.max(0, current + delta));
+      slides[next].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    document.addEventListener('keydown', function (e) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      switch (e.key) {
+        case 'ArrowDown': case 'ArrowRight': case 'PageDown': case ' ':
+          e.preventDefault(); go(1); break;
+        case 'ArrowUp': case 'ArrowLeft': case 'PageUp':
+          e.preventDefault(); go(-1); break;
+        case 'Home':
+          e.preventDefault(); slides[0].scrollIntoView({ behavior: 'smooth', block: 'start' }); break;
+        case 'End':
+          e.preventDefault(); slides[slides.length - 1].scrollIntoView({ behavior: 'smooth', block: 'start' }); break;
+      }
+    });
+  })();
+</script>
+</body>
+</html>
