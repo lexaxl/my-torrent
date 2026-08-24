@@ -1,0 +1,793 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Конвейер my-torrent</title>
+<style>
+  /* ---------- tokens: light is the base, both themes redefined below ---------- */
+  :root {
+    --ground: #ECECF2;
+    --surface: #FFFFFF;
+    --surface-2: #F4F4F9;
+    --ink: #16161E;
+    --ink-2: #474756;
+    --muted: #757586;
+    --hairline: #D8D8E4;
+    --hairline-strong: #C2C2D2;
+    --accent: #4C5FD5;
+    --accent-ink: #3A4BB8;
+    --accent-soft: rgba(76, 95, 213, 0.10);
+    --success: #1F9254;
+    --warning: #B7791F;
+    --danger: #B3352F;
+    --shadow: 0 1px 2px rgba(22, 22, 30, 0.06), 0 8px 24px rgba(22, 22, 30, 0.05);
+
+    --serif: ui-serif, "New York", "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Mono", monospace;
+
+    --pad: clamp(1.5rem, 4.5vw, 5rem);
+    --maxw: 1080px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0F0F14;
+      --surface: #191921;
+      --surface-2: #20202B;
+      --ink: #E9E9F1;
+      --ink-2: #BCBCCB;
+      --muted: #8A8A9C;
+      --hairline: #2B2B37;
+      --hairline-strong: #3A3A49;
+      --accent: #7C8CF0;
+      --accent-ink: #9AA6F5;
+      --accent-soft: rgba(124, 140, 240, 0.14);
+      --success: #3FB873;
+      --warning: #D2A245;
+      --danger: #E06C64;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px rgba(0, 0, 0, 0.3);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0F0F14;
+    --surface: #191921;
+    --surface-2: #20202B;
+    --ink: #E9E9F1;
+    --ink-2: #BCBCCB;
+    --muted: #8A8A9C;
+    --hairline: #2B2B37;
+    --hairline-strong: #3A3A49;
+    --accent: #7C8CF0;
+    --accent-ink: #9AA6F5;
+    --accent-soft: rgba(124, 140, 240, 0.14);
+    --success: #3FB873;
+    --warning: #D2A245;
+    --danger: #E06C64;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px rgba(0, 0, 0, 0.3);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- deck shell ---------- */
+  .deck {
+    height: 100svh;
+    overflow-y: auto;
+    scroll-snap-type: y mandatory;
+    scroll-behavior: smooth;
+  }
+  .slide {
+    min-height: 100svh;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: clamp(4rem, 9vh, 6rem) var(--pad) clamp(3.5rem, 8vh, 5rem);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .slide > .inner {
+    width: 100%;
+    max-width: var(--maxw);
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(1.1rem, 2.4vh, 1.9rem);
+  }
+
+  /* ---------- chrome ---------- */
+  .chrome {
+    position: fixed;
+    inset: 0 0 auto 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.9rem var(--pad);
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: color-mix(in srgb, var(--ground) 84%, transparent);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--hairline);
+    z-index: 10;
+    pointer-events: none;
+  }
+  .chrome .mark { color: var(--ink-2); }
+  .chrome .mark b { color: var(--accent); font-weight: 600; }
+  .counter { font-variant-numeric: tabular-nums; }
+  .rail {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    height: 2px;
+    width: 100%;
+    background: var(--hairline);
+    z-index: 10;
+  }
+  .rail > i {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: var(--accent);
+    transition: width 0.25s ease;
+  }
+  .hint {
+    position: fixed;
+    right: var(--pad);
+    bottom: 1rem;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    z-index: 10;
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+  }
+
+  /* ---------- typography ---------- */
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .eyebrow::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--hairline);
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.6rem, 6.5vw, 4.6rem);
+    line-height: 1.02;
+    letter-spacing: -0.02em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(1.6rem, 3.4vw, 2.5rem);
+    line-height: 1.12;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h3 {
+    font-size: 0.98rem;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -0.005em;
+  }
+  p { margin: 0; max-width: 62ch; }
+  .lead {
+    font-size: clamp(1.02rem, 1.5vw, 1.22rem);
+    color: var(--ink-2);
+    max-width: 58ch;
+  }
+  .small { font-size: 0.86rem; color: var(--muted); max-width: 68ch; }
+  strong { font-weight: 600; color: var(--ink); }
+  code, .m {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    color: var(--accent-ink);
+  }
+
+  /* ---------- components ---------- */
+  .grid { display: grid; gap: clamp(0.7rem, 1.6vw, 1.1rem); }
+  .g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    padding: clamp(0.9rem, 1.8vw, 1.25rem);
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    box-shadow: var(--shadow);
+  }
+  .card .tag {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .card p { font-size: 0.9rem; color: var(--ink-2); }
+
+  .stat {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    padding: clamp(0.8rem, 1.6vw, 1.1rem);
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .stat b {
+    font-family: var(--serif);
+    font-size: clamp(1.5rem, 3.2vw, 2.1rem);
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat span {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  ul.list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.55rem; }
+  ul.list > li {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.7rem;
+    align-items: baseline;
+    font-size: 0.94rem;
+    color: var(--ink-2);
+  }
+  ul.list > li::before {
+    content: "—";
+    font-family: var(--mono);
+    color: var(--accent);
+  }
+  ul.list.check > li::before { content: "✓"; color: var(--success); }
+  ul.list.warn > li::before { content: "!"; color: var(--warning); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .chip {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    padding: 0.28rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--hairline-strong);
+    color: var(--ink-2);
+    background: var(--surface);
+    white-space: nowrap;
+  }
+  .chip.on { border-color: transparent; background: var(--accent-soft); color: var(--accent-ink); }
+
+  /* architecture stack */
+  .stack { display: flex; flex-direction: column; gap: 0.4rem; }
+  .band {
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 0.85rem 1.1rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.3rem 0.9rem;
+  }
+  .band .who { font-weight: 600; font-size: 0.95rem; }
+  .band .what { font-size: 0.86rem; color: var(--muted); }
+  .band.core { border-left: 3px solid var(--accent); }
+  .band.bound { border-left: 3px solid var(--warning); background: var(--surface-2); }
+  .band.shell { border-left: 3px solid var(--success); }
+  .flow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    text-align: center;
+    letter-spacing: 0.06em;
+  }
+
+  /* pipeline rails */
+  .rail-row { display: flex; flex-direction: column; gap: 0.5rem; }
+  .rail-row .rail-label {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .steps { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0.35rem; }
+  .step {
+    flex: 1 1 120px;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    padding: 0.6rem 0.7rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+  }
+  .step .n {
+    font-family: var(--mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .step .t { font-size: 0.86rem; font-weight: 600; line-height: 1.25; }
+  .step.loop { border-color: var(--accent); background: var(--accent-soft); }
+  .step.loop .n { color: var(--accent-ink); }
+
+  /* review findings */
+  .find {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.55rem 0.85rem;
+    align-items: start;
+    padding: 0.75rem 0;
+    border-top: 1px solid var(--hairline);
+  }
+  .find:first-of-type { border-top: none; }
+  .sev {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.22rem 0.45rem;
+    border-radius: 4px;
+    white-space: nowrap;
+    color: var(--surface);
+    background: var(--muted);
+  }
+  .sev.high { background: var(--danger); }
+  .sev.med { background: var(--warning); }
+  .sev.ref { background: transparent; color: var(--muted); border: 1px solid var(--hairline-strong); }
+  .find .body { font-size: 0.92rem; color: var(--ink-2); }
+  .find .body b { display: block; color: var(--ink); }
+
+  .split { display: grid; grid-template-columns: 1.05fr 1fr; gap: clamp(1rem, 3vw, 2.4rem); align-items: start; }
+
+  .quote {
+    border-left: 2px solid var(--accent);
+    padding-left: 1rem;
+    font-family: var(--serif);
+    font-size: clamp(1.05rem, 1.8vw, 1.35rem);
+    line-height: 1.4;
+    color: var(--ink);
+    max-width: 52ch;
+  }
+
+  .kv { display: flex; flex-direction: column; gap: 0; }
+  .kv > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.5rem 0;
+    border-top: 1px solid var(--hairline);
+    font-size: 0.9rem;
+  }
+  .kv > div:first-child { border-top: none; }
+  .kv .k { color: var(--muted); }
+  .kv .v { font-family: var(--mono); font-size: 0.82rem; color: var(--ink); text-align: right; }
+
+  /* ---------- motion ---------- */
+  [data-anim] {
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+  }
+  .is-active [data-anim] { opacity: 1; transform: none; }
+  .is-active [data-anim]:nth-child(2) { transition-delay: 0.06s; }
+  .is-active [data-anim]:nth-child(3) { transition-delay: 0.12s; }
+  .is-active [data-anim]:nth-child(4) { transition-delay: 0.18s; }
+  .is-active [data-anim]:nth-child(5) { transition-delay: 0.24s; }
+  .is-active [data-anim]:nth-child(6) { transition-delay: 0.30s; }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .deck { scroll-behavior: auto; }
+    [data-anim] { opacity: 1; transform: none; transition: none; }
+    .rail > i { transition: none; }
+  }
+
+  @media (max-width: 760px) {
+    .g3, .g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .split { grid-template-columns: 1fr; }
+    .slide { justify-content: flex-start; }
+  }
+  @media (max-width: 460px) {
+    .g2, .g3, .g4 { grid-template-columns: 1fr; }
+    .hint { display: none; }
+  }
+</style>
+</head>
+<body>
+<header class="chrome">
+  <span class="mark"><b>my-torrent</b> — BMAD</span>
+  <span class="counter" id="counter">01 / 14</span>
+</header>
+<div class="rail"><i id="railFill"></i></div>
+<div class="hint" id="hint">↓ / space</div>
+
+<main class="deck" id="deck">
+
+  <!-- 1 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>26–30 июля 2026 · соло-проект</div>
+      <h1 data-anim>Торрент-клиент,<br>собранный конвейером</h1>
+      <p class="lead" data-anim>Нативное macOS-приложение на Rust + SwiftUI, пройденное от «хочу торрент-качалку» до подписанного тега <span class="m">v1.0.0</span> — целиком по харнесу BMAD. Пять дней, 22 коммита, ни одной строчки кода без предшествующего ей документа.</p>
+      <div class="chips" data-anim>
+        <span class="chip on">BMAD v6.10</span>
+        <span class="chip on">WDS</span>
+        <span class="chip">Rust · librqbit</span>
+        <span class="chip">UniFFI</span>
+        <span class="chip">SwiftUI</span>
+        <span class="chip">6 эпиков / 18 историй</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Харнес</div>
+      <h2 data-anim>BMAD — это не промпт, а конвейер артефактов</h2>
+      <p class="lead" data-anim>Набор устанавливаемых в проект скиллов, где каждый шаг разработки — отдельная процедура с входными и выходными документами. Документ предыдущей фазы является контрактом для следующей: агент не «помнит» решения, он их <strong>читает</strong>.</p>
+      <div class="grid g4" data-anim>
+        <div class="card"><span class="tag">core</span><h3>Общий каркас</h3><p>Конфиг, язык вывода, брейншторминг, ретро, party-mode.</p></div>
+        <div class="card"><span class="tag">bmm</span><h3>BMad Method</h3><p>Бриф → PRD → архитектура → эпики → истории → dev → ревью.</p></div>
+        <div class="card"><span class="tag">wds</span><h3>Whiteport Design Studio</h3><p>Продуктовая и UX-фаза: сценарии, экраны, дизайн-система.</p></div>
+        <div class="card"><span class="tag">tea</span><h3>Test Architect</h3><p>Тест-дизайн, трассировка, NFR-аудит. В этом проекте — почти не задействован.</p></div>
+      </div>
+      <p class="small" data-anim>Установка кладёт в репозиторий <span class="m">_bmad/</span> (скиллы + конфиг) и пишет результат в <span class="m">_bmad-output/</span>. Язык вывода задан один раз в <span class="m">config.toml</span> — <span class="m">document_output_language = "Russian"</span>, поэтому все артефакты проекта на русском.</p>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Харнес</div>
+      <h2 data-anim>Роли вместо одного «ассистента»</h2>
+      <p class="lead" data-anim>Каждая фаза активируется своим скиллом с собственной персоной, набором вопросов и шаблоном выходного документа. Смена скилла — это смена оптики, а не вежливая просьба «теперь подумай как архитектор».</p>
+      <div class="grid g3" data-anim>
+        <div class="card"><span class="tag">saga · wds</span><h3>Аналитик</h3><p>Product Brief: кто пользователь, что болит, чего точно не делаем.</p></div>
+        <div class="card"><span class="tag">freya · wds</span><h3>UX-дизайнер</h3><p>Сценарии, ASCII-вайрфреймы, спеки экранов, дизайн-токены.</p></div>
+        <div class="card"><span class="tag">winston · bmm</span><h3>Архитектор</h3><p>Architecture Spine — инварианты, которым обязан подчиняться код.</p></div>
+        <div class="card"><span class="tag">john · bmm</span><h3>Продукт</h3><p>Эпики и истории, карта покрытия требований.</p></div>
+        <div class="card"><span class="tag">amelia · bmm</span><h3>Разработчик</h3><p>Реализация ровно одной истории за проход, с отчётом о сделанном.</p></div>
+        <div class="card"><span class="tag">murat · tea</span><h3>Тест-архитектор</h3><p>Тест-стратегия и NFR-доказательства.</p></div>
+      </div>
+      <p class="small" data-anim>Персоны — не ролевая игра ради атмосферы: за каждой стоит свой чек-лист, свой формат выхода и своя граница ответственности. Архитектор не пишет истории, разработчик не переписывает архитектуру.</p>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Продукт</div>
+      <h2 data-anim>my-torrent: тихий клиент, который не мешает</h2>
+      <div class="split">
+        <div class="grid" data-anim>
+          <p class="lead">Минималистичная качалка для macOS: <span class="m">.torrent</span> или magnet открывается <strong>без единого диалога</strong>, живой список закачек, окно деталей с файлами/трекерами/пирами, иконка в меню-баре, уведомление о завершении. Двуязычный интерфейс (ru/en).</p>
+          <ul class="list">
+            <li><strong>15 функциональных требований</strong>, каждое привязано к эпику картой покрытия.</li>
+            <li><strong>NFR1 — почти нулевой расход ресурсов в простое.</strong> Главная и непереговариваемая метрика: поллинг вообще выключается, когда нет активных торрентов.</li>
+            <li>Только Apple Silicon, только последние версии macOS, распространение неподписанным <span class="m">.dmg</span> — бюджет проекта $0.</li>
+          </ul>
+        </div>
+        <div class="grid" data-anim>
+          <div class="kv">
+            <div><span class="k">Эпик 1</span><span class="v">добавление, список, управление</span></div>
+            <div><span class="k">Эпик 2</span><span class="v">окно деталей торрента</span></div>
+            <div><span class="k">Эпик 3</span><span class="v">умолчания: папка, раздача</span></div>
+            <div><span class="k">Эпик 4</span><span class="v">меню-бар, уведомления, релиз</span></div>
+            <div><span class="k">Эпик 5</span><span class="v">данные в строке, айдентика</span></div>
+            <div><span class="k">Эпик 6</span><span class="v">Dock, session persistence</span></div>
+          </div>
+          <p class="small">Роадмап закрыт полностью: 18 из 18 историй в статусе done, тег <span class="m">v1.0.0</span>.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Стек</div>
+      <h2 data-anim>Rust внутри, SwiftUI снаружи, UniFFI между</h2>
+      <div class="grid g3" data-anim>
+        <div class="card"><span class="tag">движок</span><h3>Rust · librqbit 8.1</h3><p>Весь BitTorrent — peer wire, DHT, трекеры, парсинг magnet — делегирован librqbit поверх tokio. Свой протокол не писали принципиально.</p></div>
+        <div class="card"><span class="tag">граница</span><h3>UniFFI 0.32</h3><p>Swift-биндинги генерируются из Rust-аннотаций в build-фазе. Ручного мостового кода нет вообще.</p></div>
+        <div class="card"><span class="tag">оболочка</span><h3>SwiftUI · macOS 13+</h3><p>Все экраны, включая меню-бар через <span class="m">MenuBarExtra</span>. AppKit не используется.</p></div>
+      </div>
+      <div class="grid g4" data-anim>
+        <div class="stat"><b>1 733</b><span>строк Rust</span></div>
+        <div class="stat"><b>1 644</b><span>строк Swift</span></div>
+        <div class="stat"><b>28</b><span>Rust-тестов</span></div>
+        <div class="stat"><b>2</b><span>релизных тега</span></div>
+      </div>
+      <p class="small" data-anim>Xcode-проект генерируется из <span class="m">project.yml</span> через XcodeGen (среда без GUI-мастера). Релиз — GitHub Actions на macOS-раннере по пушу тега: сборка → неподписанный <span class="m">.dmg</span> → GitHub Release.</p>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Архитектура</div>
+      <h2 data-anim>Core-Shell: одна граница, ноль домена в UI</h2>
+      <div class="stack" data-anim>
+        <div class="band shell"><span class="who">SwiftUI Shell</span><span class="what">Views + настройки в UserDefaults · чистая презентация, торрент-логики не держит</span></div>
+        <div class="flow">↓ фоновый Task, опрос ~1 c &nbsp;·&nbsp; ↑ снимок состояния на MainActor</div>
+        <div class="band bound"><span class="who">Граница UniFFI</span><span class="what">сгенерированный код · руками не правится · типизированные ошибки Result → throws</span></div>
+        <div class="flow">↓ вызовы функций &nbsp;·&nbsp; ↑ Result&lt;T, EngineError&gt;</div>
+        <div class="band core"><span class="who">Rust Core</span><span class="what">librqbit + tokio · владеет состоянием сессии и всем сетевым вводом-выводом</span></div>
+      </div>
+      <p class="small" data-anim>Один процесс, никаких демонов и XPC (AD-1). Опрос вместо коллбэков и полное выключение таймера в простое (AD-4) — прямое следствие NFR1. Разделённое владение состоянием: торренты — у Rust, настройки — у Swift, поток настроек однонаправленный (AD-5).</p>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Процесс</div>
+      <h2 data-anim>Как это шло: два рельса, один цикл</h2>
+      <div class="rail-row" data-anim>
+        <span class="rail-label">WDS — продукт и дизайн (27 июля)</span>
+        <div class="steps">
+          <div class="step"><span class="n">фаза 0</span><span class="t">Настройка проекта</span></div>
+          <div class="step"><span class="n">фаза 1</span><span class="t">Product Brief</span></div>
+          <div class="step"><span class="n">фаза 3</span><span class="t">4 UX-сценария</span></div>
+          <div class="step"><span class="n">фаза 4</span><span class="t">5 спек экранов</span></div>
+          <div class="step"><span class="n">фаза 5</span><span class="t">Дизайн-система</span></div>
+          <div class="step"><span class="n">выдача</span><span class="t">DD-001 + handoff</span></div>
+        </div>
+      </div>
+      <div class="rail-row" data-anim>
+        <span class="rail-label">BMAD — архитектура и реализация (27–30 июля)</span>
+        <div class="steps">
+          <div class="step"><span class="n">winston</span><span class="t">Architecture Spine</span></div>
+          <div class="step"><span class="n">john</span><span class="t">epics.md</span></div>
+          <div class="step loop"><span class="n">×18</span><span class="t">Создать историю</span></div>
+          <div class="step loop"><span class="n">×18</span><span class="t">Реализовать</span></div>
+          <div class="step loop"><span class="n">×18</span><span class="t">Код-ревью</span></div>
+          <div class="step loop"><span class="n">×18</span><span class="t">Коммит</span></div>
+          <div class="step"><span class="n">×эпик</span><span class="t">Ретроспектива</span></div>
+        </div>
+      </div>
+      <p class="small" data-anim>Фаза 2 (Trigger Map) сознательно пропущена — стратегический контекст свёрнут в бриф. Формального PRD тоже нет: его роль сыграли Product Brief + выдача DD-001. Харнес адаптирован под соло-проект, а не исполнен ритуально; каждое отступление записано в лог.</p>
+    </div>
+  </section>
+
+  <!-- 8 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Процесс в цифрах</div>
+      <h2 data-anim>Документов заметно больше, чем кода</h2>
+      <div class="grid g4" data-anim>
+        <div class="stat"><b>9 012</b><span>строк артефактов</span></div>
+        <div class="stat"><b>3 377</b><span>строк кода</span></div>
+        <div class="stat"><b>2,7 : 1</b><span>спека к коду</span></div>
+        <div class="stat"><b>22</b><span>коммита</span></div>
+      </div>
+      <div class="grid g2" data-anim>
+        <div class="card"><span class="tag">planning-artifacts</span><h3>Спина + эпики</h3><p>Architecture Spine (10 архитектурных решений) с тремя независимыми ревью: адверсариальным, техническим и по рубрике. Плюс <span class="m">epics.md</span> с картой покрытия всех FR.</p></div>
+        <div class="card"><span class="tag">implementation-artifacts</span><h3>18 файлов историй</h3><p>По 105–280 строк каждый: критерии приёмки, задачи, заметки разработчика, отчёт агента, разбор код-ревью. Плюс общий реестр отложенного и ретроспективы.</p></div>
+      </div>
+      <p class="small" data-anim>Соотношение выглядит абсурдным ровно до первого момента, когда через две сессии нужно вспомнить, почему <span class="m">seed duration</span> считается по времени работы приложения, а не по настенным часам. Ответ лежит в спине, строкой ниже — с обоснованием.</p>
+    </div>
+  </section>
+
+  <!-- 9 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Фишка 1</div>
+      <h2 data-anim>Architecture Spine: инварианты, а не описание</h2>
+      <p class="lead" data-anim>Спина не пересказывает систему — она запрещает. Каждое решение записано тремя полями, и среднее из них самое ценное.</p>
+      <div class="grid g3" data-anim>
+        <div class="card"><span class="tag">binds</span><h3>Что связывает</h3><p>Область, на которую распространяется правило: <span class="m">engine/</span>, граница FFI, весь проект.</p></div>
+        <div class="card"><span class="tag">prevents</span><h3>Что предотвращает</h3><p>Конкретная ошибка, которую разработчик совершил бы <em>по умолчанию</em>, не зная контекста.</p></div>
+        <div class="card"><span class="tag">rule</span><h3>Правило</h3><p>Проверяемая формулировка, на которую можно сослаться в истории и в ревью.</p></div>
+      </div>
+      <div class="quote" data-anim>AD-4 предотвращает: «постоянно работающий таймер, противоречащий критерию нулевого простоя; холодный старт, при котором никто не опрашивает движок, потому что никто ещё не знает об активных торрентах».</div>
+      <p class="small" data-anim>Прогноз AD-4 сбылся буквально: bootstrap-опрос, заложенный ради холодного старта в эпике 1, через три дня без единой правки подхватил торренты, восстановленные из сессии в эпике 6.</p>
+    </div>
+  </section>
+
+  <!-- 10 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Фишка 2</div>
+      <h2 data-anim>История — это самодостаточный пакет контекста</h2>
+      <p class="lead" data-anim>Разработчик-агент стартует с чистой памятью. Поэтому файл истории содержит не «что сделать», а всё, что нужно, чтобы сделать это правильно с первого раза.</p>
+      <div class="grid g2" data-anim>
+        <div class="card"><span class="tag">Acceptance Criteria</span><h3>Given / When / Then</h3><p>Формулировки проверяемые, а не благопожелательные: «<span class="m">fastresume: true</span>, битфилд кусков персистится в <span class="m">.bitv</span>».</p></div>
+        <div class="card"><span class="tag">Dev Notes</span><h3>Факты со ссылками на строки</h3><p>Механика librqbit выписана из вендоренного исходника с точными номерами строк — чтобы агент не гадал по документации.</p></div>
+        <div class="card"><span class="tag">Previous Story Intelligence</span><h3>Грабли предыдущей истории</h3><p>«xcstrings не отсортирован — правь точечно, иначе получишь дифф на 360 строк». Опыт переносится явно, а не надеждой.</p></div>
+        <div class="card"><span class="tag">Scope Boundary</span><h3>Что мы осознанно не чиним</h3><p>Не отрезолвившийся magnet при выходе теряется. Записано как принятое ограничение — чтобы ревью не открывало это как баг.</p></div>
+      </div>
+      <p class="small" data-anim>Ссылки в конце каждой истории оформлены как <span class="m">[Source: путь#якорь]</span> — на спину, на предыдущие истории, на строки в чужом крейте. Это же и есть аудит-трейл решения.</p>
+    </div>
+  </section>
+
+  <!-- 11 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Фишка 3</div>
+      <h2 data-anim>Dev Agent Record: отчёт, где отклонения записаны честно</h2>
+      <p class="lead" data-anim>После реализации агент дописывает в тот же файл, что реально произошло. Ценность не в галочках, а в местах, где план разошёлся с реальностью.</p>
+      <ul class="list warn" data-anim>
+        <li><strong>Debug Log.</strong> «Контекстное меню SwiftUI-строки недостижимо через Accessibility API — строки расплющены до статик-текстов». Два пункта чек-листа выполнены иначе, чем написано, и это зафиксировано прямым текстом.</li>
+        <li><strong>Completion Notes.</strong> Построчно по каждому критерию: подтверждено на живом приложении / покрыто тестом / покрыто механикой библиотеки без отдельной проверки.</li>
+        <li><strong>File List.</strong> Точный список тронутых файлов с пометкой характера правки — вплоть до «изменён только комментарий».</li>
+      </ul>
+      <div class="quote" data-anim>«Порядок строк при ≥2 торрентах в UI не проверялся — второго тестового торрента нет. Стабильность id покрыта ассертом в roundtrip-тесте.»</div>
+      <p class="small" data-anim>Признание непроверенного — это не слабость отчёта, а его главная функция. Именно эти строчки потом попадают в реестр отложенного и в ретроспективу.</p>
+    </div>
+  </section>
+
+  <!-- 12 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Фишка 4</div>
+      <h2 data-anim>Адверсариальное код-ревью после каждой истории</h2>
+      <p class="lead" data-anim>Отдельный проход из независимых «охотников» под разными углами, каждая находка потом верифицируется на попытку опровержения. Слабые гипотезы отсеиваются до того, как дойдут до человека.</p>
+      <div data-anim>
+        <div class="find">
+          <span class="sev high">confirmed · high</span>
+          <span class="body"><b>Повреждённый store делал приложение незапускаемым.</b> Одна битая запись в <span class="m">session.json</span> → ошибка инициализации → <span class="m">fatalError</span> на каждом старте. Crash-loop, из которого пользователь не выберется без ручного удаления папки. Починено карантином store и повторным открытием пустой сессии.</span>
+        </div>
+        <div class="find">
+          <span class="sev med">confirmed · med</span>
+          <span class="body"><b>Диалог выхода врал пользователю.</b> Обещал «закачки продолжатся при следующем запуске», хотя нерезолвнутый magnet живёт только в памяти и не переживает выход.</span>
+        </div>
+        <div class="find">
+          <span class="sev ref">refuted</span>
+          <span class="body"><b>Опровергнутые находки тоже записываются.</b> «fastresume ломается на перемещённых файлах» — нет, librqbit перехеширует. Помечено «окончательно, не переоткрывать»: следующая сессия не потратит время заново.</span>
+        </div>
+      </div>
+      <p class="small" data-anim>Оба подтверждённых бага — failure-modes, невидимые на happy-path. Ретроспектива эпика 6 превратила это в action item: для фич, трогающих файлы и сторы, продумывать повреждение и отсутствие данных <em>при реализации</em>, а не на ревью.</p>
+    </div>
+  </section>
+
+  <!-- 13 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Фишки 5 и 6</div>
+      <h2 data-anim>Долг с адресом и архитектура, которую переписывают</h2>
+      <div class="split">
+        <div class="grid" data-anim>
+          <h3>Реестр отложенного</h3>
+          <p class="small">Единый <span class="m">deferred-work.md</span>: каждая запись — что отложено, почему это допустимо сейчас и при каком условии пересмотреть. Закрытие идёт зачёркиванием со ссылкой на историю, исходный текст сохраняется под катом. Один протокол расследования (невидимая иконка в меню-баре) остался в файле целиком — и через две истории сэкономил повторное расследование того же тупика.</p>
+          <ul class="list check">
+            <li>Отсутствие persistence → закрыто историей 6.2</li>
+            <li>Отсутствие Dock-иконки → закрыто историей 6.1</li>
+            <li>Невоспроизводимый крэш на старте → осознанно оставлен открытым</li>
+          </ul>
+        </div>
+        <div class="grid" data-anim>
+          <h3>Живая спина</h3>
+          <p class="small">История 6.1 отменила исходное решение AD-7 (приложение-невидимка без иконки в Dock). Спина не выброшена и не переписана задним числом — решение помечено <span class="m">[ADOPTED; revised 2026-07-30, Story 6.1]</span>, ядро правила сохранено, причина пересмотра записана рядом.</p>
+          <div class="quote">Архитектурный документ, который нельзя изменить, перестаёт описывать систему через две недели. Тот, который меняют без следа, перестаёт быть аргументом.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 14 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow" data-anim>Итог</div>
+      <h2 data-anim>Что подход дал и чего он стоил</h2>
+      <div class="split">
+        <div class="grid" data-anim>
+          <h3>Дал</h3>
+          <ul class="list check">
+            <li>Роадмап из 6 эпиков закрыт за 5 дней, без переписываний архитектуры.</li>
+            <li>Ревью поймало два бага, которые проявились бы только у пользователя.</li>
+            <li>Решения переживают границы сессий: агент читает контекст, а не вспоминает его.</li>
+            <li>Спорные развилки уходили человеку выбором из вариантов, а не угадывались.</li>
+          </ul>
+        </div>
+        <div class="grid" data-anim>
+          <h3>Стоил</h3>
+          <ul class="list warn">
+            <li>Спеки в 2,7 раза объёмнее кода — на проекте меньшего масштаба это чистые накладные расходы.</li>
+            <li>Ритуал приходится адаптировать: PRD, trigger map и тест-модуль пропущены осознанно.</li>
+            <li>Верификация нативного UI осталась ручной — Accessibility API достаёт не до всего, автотестов Swift нет.</li>
+            <li>Реализация думает про happy-path; failure-modes всплывают только на ревью.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="lead" data-anim>Главный вывод: ценность харнеса не в персонах и не в шаблонах, а в том, что каждое решение получает <strong>адрес</strong> — файл, строку и причину, на которые можно сослаться через неделю и через сто коммитов.</p>
+    </div>
+  </section>
+
+</main>
+
+<script>
+  (function () {
+    var deck = document.getElementById('deck');
+    var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+    var counter = document.getElementById('counter');
+    var railFill = document.getElementById('railFill');
+    var hint = document.getElementById('hint');
+    var current = 0;
+
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+
+    function setCurrent(i) {
+      current = i;
+      counter.textContent = pad(i + 1) + ' / ' + pad(slides.length);
+      railFill.style.width = ((i + 1) / slides.length * 100) + '%';
+      if (hint) hint.style.opacity = i === 0 ? '1' : '0';
+    }
+
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-active');
+          setCurrent(slides.indexOf(entry.target));
+        }
+      });
+    }, { threshold: 0.5 });
+
+    slides.forEach(function (s) { io.observe(s); });
+    setCurrent(0);
+    slides[0].classList.add('is-active');
+
+    function go(delta) {
+      var next = Math.min(slides.length - 1, Math.max(0, current + delta));
+      slides[next].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    document.addEventListener('keydown', function (e) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      switch (e.key) {
+        case 'ArrowDown': case 'ArrowRight': case 'PageDown': case ' ':
+          e.preventDefault(); go(1); break;
+        case 'ArrowUp': case 'ArrowLeft': case 'PageUp':
+          e.preventDefault(); go(-1); break;
+        case 'Home':
+          e.preventDefault(); slides[0].scrollIntoView({ behavior: 'smooth', block: 'start' }); break;
+        case 'End':
+          e.preventDefault(); slides[slides.length - 1].scrollIntoView({ behavior: 'smooth', block: 'start' }); break;
+      }
+    });
+  })();
+</script>
+</body>
+</html>

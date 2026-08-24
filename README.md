@@ -37,3 +37,12 @@ xattr -d com.apple.quarantine /Applications/MyTorrent.app
 xcodegen generate
 xcodebuild -project MyTorrent.xcodeproj -scheme MyTorrent -configuration Debug build
 ```
+
+## Презентации
+
+Разбор того, как проект был сделан: архитектура (Rust-движок + SwiftUI-оболочка через UniFFI) и процесс разработки по BMAD-конвейеру.
+
+- [Полная версия](https://lexaxl.github.io/my-torrent/presentations/pipeline-full.html) — 14 слайдов
+- [Короткая версия](https://lexaxl.github.io/my-torrent/presentations/pipeline-short.html) — 11 слайдов
+
+Слайды листаются стрелками / пробелом. Исходники — в [`docs/presentations/`](docs/presentations/).
